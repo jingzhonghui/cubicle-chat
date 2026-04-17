@@ -1,0 +1,1596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CubicleChat 原型图 v1.0</title>
+<style>
+  /* ============ CSS 变量 / 设计令牌 ============ */
+  :root {
+    --bg-base:        #F5F5F5;
+    --bg-surface:     #FFFFFF;
+    --bg-elevated:    #FAFAFA;
+    --bg-input:       #F0F0F0;
+    --accent:         #2D7DD2;
+    --accent-light:   #E8F1FB;
+    --accent-hover:   #2568B8;
+    --text-primary:   #1A1A1A;
+    --text-secondary: #6B7280;
+    --text-disabled:  #9CA3AF;
+    --text-on-accent: #FFFFFF;
+    --border:         #E5E7EB;
+    --border-strong:  #D1D5DB;
+    --status-online:  #22C55E;
+    --status-busy:    #F59E0B;
+    --status-away:    #9CA3AF;
+    --status-offline: #D1D5DB;
+    --error:          #EF4444;
+    --warning:        #F59E0B;
+    --success:        #22C55E;
+    --shadow-sm:      0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md:      0 4px 12px rgba(0,0,0,0.10);
+    --shadow-lg:      0 8px 24px rgba(0,0,0,0.12);
+    --nav-w:          48px;
+    --sidebar-w:      240px;
+  }
+  [data-theme="dark"] {
+    --bg-base:        #1C1C1E;
+    --bg-surface:     #2C2C2E;
+    --bg-elevated:    #3A3A3C;
+    --bg-input:       #3A3A3C;
+    --accent:         #3A8EE6;
+    --accent-light:   #1A3A5C;
+    --text-primary:   #F2F2F7;
+    --text-secondary: #8E8E93;
+    --text-disabled:  #636366;
+    --border:         #38383A;
+    --border-strong:  #48484A;
+  }
+
+  /* ============ 重置 & 基础 ============ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", -apple-system, sans-serif;
+    font-size: 14px;
+    background: #E0E0E0;
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    gap: 24px;
+  }
+
+  /* ============ 原型图容器 ============ */
+  .proto-header {
+    width: 100%;
+    max-width: 1100px;
+    text-align: center;
+    color: #333;
+  }
+  .proto-header h1 { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+  .proto-header p  { font-size: 13px; color: #666; margin-top: 4px; }
+
+  /* 页面标签导航 */
+  .page-tabs {
+    display: flex;
+    gap: 8px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: var(--shadow-sm);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .page-tab {
+    padding: 7px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border: none;
+    background: transparent;
+    transition: all 0.15s;
+  }
+  .page-tab:hover { background: var(--bg-base); color: var(--text-primary); }
+  .page-tab.active { background: var(--accent); color: #fff; }
+
+  /* 原型图画布区 */
+  .canvas-wrap {
+    width: 100%;
+    max-width: 1100px;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+  .canvas-label {
+    background: #F8F9FA;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.r { background: #FF5F57; }
+  .dot.y { background: #FFBC2E; }
+  .dot.g { background: #28C840; }
+
+  /* 分屏容器（隐藏/显示控制） */
+  .page { display: none; }
+  .page.active { display: flex; }
+
+  /* ============ APP SHELL ============ */
+  .app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 680px;
+    background: var(--bg-base);
+  }
+
+  /* 标题栏 */
+  .titlebar {
+    height: 32px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 6px;
+    -webkit-app-region: drag;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .titlebar-dots { display: flex; gap: 6px; margin-right: 8px; }
+  .titlebar-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .titlebar-title { flex: 1; text-align: center; font-size: 12px; color: var(--text-secondary); }
+
+  /* 主体区 */
+  .app-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ============ 导航栏 ============ */
+  .nav {
+    width: var(--nav-w);
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .nav-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent);
+    color: #fff; font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; margin-bottom: 8px;
+    position: relative;
+  }
+  .nav-avatar .status-dot {
+    position: absolute; bottom: 0; right: 0;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--status-online);
+    border: 2px solid var(--bg-surface);
+  }
+  .nav-spacer { flex: 1; }
+  .nav-btn {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary);
+    transition: all 0.12s; border: none; background: transparent;
+    font-size: 18px; position: relative;
+  }
+  .nav-btn:hover { background: var(--bg-base); color: var(--text-primary); }
+  .nav-btn.active { background: var(--accent-light); color: var(--accent); }
+  .nav-badge {
+    position: absolute; top: 3px; right: 3px;
+    background: var(--error); color: #fff;
+    font-size: 9px; font-weight: 700;
+    min-width: 14px; height: 14px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 2px;
+  }
+
+  /* ============ 侧边栏 ============ */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+  .search-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg-input); border-radius: 8px;
+    padding: 6px 10px;
+  }
+  .search-box input {
+    border: none; background: transparent; outline: none;
+    font-size: 13px; color: var(--text-primary); flex: 1;
+    font-family: inherit;
+  }
+  .search-icon { color: var(--text-secondary); font-size: 14px; }
+
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .sidebar-list::-webkit-scrollbar { width: 4px; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .session-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; cursor: pointer;
+    transition: background 0.1s; position: relative;
+  }
+  .session-item:hover { background: var(--bg-base); }
+  .session-item.active {
+    background: var(--accent-light);
+    border-left: 3px solid var(--accent);
+    padding-left: 9px;
+  }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; color: #fff;
+    flex-shrink: 0; position: relative;
+  }
+  .avatar .status-dot {
+    position: absolute; bottom: 0; right: 0;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--bg-surface);
+  }
+  .session-info { flex: 1; min-width: 0; }
+  .session-name {
+    font-size: 14px; font-weight: 500; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .session-preview {
+    font-size: 12px; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+  .session-meta {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 4px; flex-shrink: 0;
+  }
+  .session-time { font-size: 11px; color: var(--text-secondary); }
+  .badge {
+    background: var(--error); color: #fff;
+    font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 4px;
+  }
+
+  /* ============ 聊天区 ============ */
+  .chat-area {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg-base);
+  }
+
+  /* 对话顶栏 */
+  .chat-header {
+    height: 48px; background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 16px; gap: 10px;
+    flex-shrink: 0;
+  }
+  .chat-header-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: #fff; }
+  .chat-header-info { flex: 1; }
+  .chat-header-name { font-size: 14px; font-weight: 600; }
+  .chat-header-status { font-size: 12px; color: var(--status-online); }
+  .chat-header-actions { display: flex; gap: 4px; }
+  .icon-btn {
+    width: 32px; height: 32px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary);
+    transition: all 0.12s; border: none; background: transparent;
+    font-size: 16px;
+  }
+  .icon-btn:hover { background: var(--bg-base); color: var(--text-primary); }
+
+  /* 消息列表 */
+  .msg-list {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .msg-list::-webkit-scrollbar { width: 4px; }
+  .msg-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg-date-divider {
+    text-align: center; font-size: 11px; color: var(--text-secondary);
+    margin: 8px 0; position: relative;
+  }
+  .msg-date-divider::before, .msg-date-divider::after {
+    content: ''; position: absolute; top: 50%;
+    width: calc(50% - 50px); height: 1px; background: var(--border);
+  }
+  .msg-date-divider::before { left: 0; }
+  .msg-date-divider::after { right: 0; }
+
+  .msg-row {
+    display: flex; gap: 8px; margin: 4px 0;
+    align-items: flex-end;
+  }
+  .msg-row.self { flex-direction: row-reverse; }
+  .msg-avatar { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; }
+  .msg-content { max-width: 65%; display: flex; flex-direction: column; gap: 3px; }
+  .msg-row.self .msg-content { align-items: flex-end; }
+  .msg-sender { font-size: 11px; color: var(--text-secondary); margin-bottom: 2px; }
+  .bubble {
+    padding: 8px 12px; border-radius: 12px;
+    font-size: 14px; line-height: 1.5;
+    word-break: break-all;
+  }
+  .bubble.other {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+    color: var(--text-primary);
+  }
+  .bubble.self {
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg-meta {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--text-secondary);
+  }
+  .msg-row.self .msg-meta { flex-direction: row-reverse; }
+  .read-tick { font-size: 12px; color: var(--accent); }
+
+  /* 图片气泡 */
+  .img-bubble {
+    border-radius: 8px; overflow: hidden; max-width: 200px;
+    cursor: pointer; position: relative;
+  }
+  .img-bubble img { width: 100%; display: block; }
+  .img-bubble-border { border: 1px solid var(--border); border-radius: 8px; }
+
+  /* 文件气泡 */
+  .file-bubble {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px; border-bottom-left-radius: 4px;
+    padding: 10px 12px; min-width: 200px;
+  }
+  .file-bubble.self {
+    background: rgba(45,125,210,0.9);
+    border-color: transparent;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 4px;
+    color: #fff;
+  }
+  .file-bubble-top { display: flex; align-items: center; gap: 8px; }
+  .file-icon { font-size: 22px; }
+  .file-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+  .file-size { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .file-bubble.self .file-size { color: rgba(255,255,255,0.7); }
+  .file-divider { height: 1px; background: var(--border); margin: 8px 0; }
+  .file-bubble.self .file-divider { background: rgba(255,255,255,0.2); }
+  .file-actions { display: flex; gap: 8px; }
+  .file-action-btn {
+    font-size: 12px; color: var(--accent); cursor: pointer; font-weight: 500;
+    background: none; border: none; padding: 0;
+  }
+  .file-bubble.self .file-action-btn { color: #fff; }
+
+  /* 撤回消息 */
+  .msg-retracted {
+    font-size: 13px; color: var(--text-secondary); font-style: italic;
+    padding: 4px 0;
+  }
+
+  /* 正在输入 */
+  .typing-indicator {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--text-secondary);
+    padding: 4px 0 0 44px;
+  }
+  .typing-dots { display: flex; gap: 3px; }
+  .typing-dots span {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--text-secondary);
+    animation: typingBounce 1.2s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingBounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* 输入框区 */
+  .input-area {
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .input-toolbar {
+    display: flex; align-items: center; gap: 2px;
+    padding: 6px 12px 0;
+    border-bottom: 1px solid var(--border);
+    height: 36px;
+  }
+  .toolbar-btn {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary);
+    font-size: 15px; border: none; background: transparent;
+    transition: all 0.1s;
+  }
+  .toolbar-btn:hover { background: var(--bg-base); color: var(--text-primary); }
+  .toolbar-spacer { flex: 1; }
+  .input-box {
+    padding: 8px 12px;
+    min-height: 80px; max-height: 160px;
+    font-size: 14px; color: var(--text-primary);
+    outline: none; overflow-y: auto;
+    font-family: inherit; line-height: 1.5;
+  }
+  .input-box[placeholder]:empty::before {
+    content: attr(placeholder); color: var(--text-disabled);
+  }
+  .input-footer {
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 4px 12px 8px;
+  }
+  .send-hint { font-size: 11px; color: var(--text-secondary); }
+  .send-btn {
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 8px;
+    padding: 6px 16px; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .send-btn:hover { background: var(--accent-hover); }
+
+  /* ============ 在线用户列表 ============ */
+  .users-page { width: 100%; height: 100%; }
+  .group-header {
+    padding: 6px 12px 4px;
+    font-size: 11px; font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer;
+  }
+  .group-count {
+    background: var(--bg-input); border-radius: 10px;
+    padding: 0 6px; font-size: 10px;
+    color: var(--text-secondary);
+  }
+  .user-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; cursor: pointer;
+    transition: background 0.1s; position: relative;
+  }
+  .user-item:hover { background: var(--bg-base); }
+  .user-item:hover .user-action { opacity: 1; }
+  .user-name { font-size: 13px; color: var(--text-primary); flex: 1; }
+  .user-action {
+    opacity: 0; font-size: 11px; color: var(--accent);
+    background: var(--accent-light); border-radius: 6px;
+    padding: 3px 8px; transition: opacity 0.15s; cursor: pointer;
+  }
+
+  /* ============ 文件传输面板 ============ */
+  .files-page { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .files-toolbar {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .sort-btn {
+    font-size: 12px; color: var(--text-secondary);
+    background: var(--bg-input); border-radius: 6px;
+    padding: 4px 10px; border: none; cursor: pointer; font-family: inherit;
+  }
+  .sort-btn.active { background: var(--accent-light); color: var(--accent); }
+  .file-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .file-list::-webkit-scrollbar { width: 4px; }
+  .file-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .file-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; transition: background 0.1s; cursor: default;
+  }
+  .file-row:hover { background: var(--bg-base); }
+  .file-row-icon { font-size: 28px; flex-shrink: 0; }
+  .file-row-info { flex: 1; min-width: 0; }
+  .file-row-name { font-size: 13px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-row-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .file-row-status { font-size: 12px; color: var(--text-secondary); flex-shrink: 0; }
+  .progress-wrap { margin-top: 4px; }
+  .progress-bar {
+    height: 4px; background: var(--bg-input); border-radius: 2px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent); border-radius: 2px;
+    transition: width 0.3s linear;
+  }
+  .progress-text { font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .file-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .small-btn {
+    font-size: 11px; padding: 3px 8px; border-radius: 5px;
+    border: 1px solid var(--border); cursor: pointer;
+    background: transparent; color: var(--text-secondary); font-family: inherit;
+    transition: all 0.1s;
+  }
+  .small-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .small-btn.danger:hover { border-color: var(--error); color: var(--error); }
+
+  /* ============ 设置面板 ============ */
+  .settings-page { flex: 1; display: flex; overflow: hidden; }
+  .settings-nav {
+    width: 140px; border-right: 1px solid var(--border);
+    padding: 12px 8px; flex-shrink: 0;
+    background: var(--bg-surface);
+  }
+  .settings-nav-item {
+    padding: 8px 10px; border-radius: 8px;
+    font-size: 13px; cursor: pointer; color: var(--text-secondary);
+    transition: all 0.1s; display: flex; align-items: center; gap: 6px;
+  }
+  .settings-nav-item:hover { background: var(--bg-base); color: var(--text-primary); }
+  .settings-nav-item.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+  .settings-nav-item .sicon { font-size: 15px; }
+  .settings-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .settings-content::-webkit-scrollbar { width: 4px; }
+  .settings-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .settings-section-title {
+    font-size: 16px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-label { font-size: 13px; color: var(--text-primary); flex: 1; }
+  .settings-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .settings-input {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; outline: none;
+    font-family: inherit; color: var(--text-primary);
+    background: var(--bg-input); width: 200px;
+  }
+  .settings-input:focus { border-color: var(--accent); }
+  .toggle {
+    width: 36px; height: 20px; border-radius: 10px;
+    background: var(--border-strong); cursor: pointer;
+    position: relative; transition: background 0.2s; flex-shrink: 0;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle.on::after { transform: translateX(16px); }
+  .radio-group { display: flex; gap: 12px; }
+  .radio-item { display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
+  .radio-item input { accent-color: var(--accent); }
+  .avatar-preview {
+    width: 60px; height: 60px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 20px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .avatar-actions { display: flex; gap: 8px; }
+  .outline-btn {
+    font-size: 12px; padding: 5px 12px; border-radius: 7px;
+    border: 1px solid var(--border); cursor: pointer;
+    background: transparent; color: var(--text-primary); font-family: inherit;
+    transition: all 0.1s;
+  }
+  .outline-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .select-input {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px;
+    font-family: inherit; color: var(--text-primary);
+    background: var(--bg-input); outline: none;
+  }
+  .select-input:focus { border-color: var(--accent); }
+
+  /* ============ 网络警告横幅 ============ */
+  .warning-banner {
+    background: #FEF3C7; border-bottom: 1px solid #FDE68A;
+    padding: 6px 16px;
+    font-size: 12px; color: #92400E;
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+  }
+  .warning-banner span { flex: 1; }
+
+  /* ============ 空状态 ============ */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; color: var(--text-secondary);
+    padding: 32px;
+  }
+  .empty-icon { font-size: 40px; opacity: 0.4; }
+  .empty-title { font-size: 14px; font-weight: 500; color: var(--text-secondary); text-align: center; }
+  .empty-desc { font-size: 12px; color: var(--text-disabled); text-align: center; line-height: 1.6; }
+
+  /* ============ 右键菜单 ============ */
+  .ctx-menu {
+    position: absolute; z-index: 100;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-lg);
+    padding: 4px; min-width: 150px;
+    display: none;
+  }
+  .ctx-menu.show { display: block; }
+  .ctx-item {
+    padding: 7px 12px; border-radius: 7px;
+    font-size: 13px; cursor: pointer; color: var(--text-primary);
+    transition: background 0.1s;
+  }
+  .ctx-item:hover { background: var(--bg-base); }
+  .ctx-item.danger { color: var(--error); }
+  .ctx-divider { height: 1px; background: var(--border); margin: 3px 0; }
+
+  /* ============ 表情面板 ============ */
+  .emoji-panel {
+    position: absolute; bottom: 100%; left: 0; z-index: 50;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-lg);
+    padding: 8px; width: 250px; display: none;
+  }
+  .emoji-panel.show { display: block; }
+  .emoji-grid { display: grid; grid-template-columns: repeat(8,1fr); gap: 2px; }
+  .emoji-btn { font-size: 20px; padding: 4px; border-radius: 6px; cursor: pointer; text-align: center; transition: background 0.1s; }
+  .emoji-btn:hover { background: var(--bg-base); }
+
+  /* ============ 骨架屏 ============ */
+  @keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-elevated) 50%, var(--bg-input) 75%);
+    background-size: 800px 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+  }
+
+  /* ============ 注释层 ============ */
+  .annotation {
+    position: absolute; z-index: 200;
+    background: #FFD700; color: #333;
+    font-size: 11px; padding: 3px 7px; border-radius: 4px;
+    font-weight: 600; white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    pointer-events: none;
+  }
+  .annotation::before {
+    content: '';
+    position: absolute; bottom: -6px; left: 10px;
+    border: 4px solid transparent;
+    border-top-color: #FFD700;
+  }
+
+  /* ============ 说明卡片 ============ */
+  .info-cards {
+    width: 100%; max-width: 1100px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .info-card {
+    background: #fff; border-radius: 10px;
+    padding: 14px; box-shadow: var(--shadow-sm);
+  }
+  .info-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+  .info-card ul { list-style: none; }
+  .info-card ul li {
+    font-size: 12px; color: var(--text-secondary);
+    padding: 2px 0; padding-left: 12px; position: relative;
+  }
+  .info-card ul li::before { content: '•'; position: absolute; left: 0; color: var(--accent); }
+
+  /* 暗色切换按钮 */
+  #darkToggle {
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 50%; width: 44px; height: 44px;
+    font-size: 20px; cursor: pointer; box-shadow: var(--shadow-md);
+    transition: transform 0.2s; z-index: 999;
+  }
+  #darkToggle:hover { transform: scale(1.1); }
+</style>
+</head>
+<body>
+
+<!-- 标题 -->
+<div class="proto-header">
+  <h1>CubicleChat 原型图 v1.0</h1>
+  <p>局域网即时通讯工具 · 交互式界面原型 · 点击各标签切换页面</p>
+</div>
+
+<!-- 页面导航 -->
+<div class="page-tabs">
+  <button class="page-tab active" onclick="switchPage('main')">💬 主界面 · 聊天</button>
+  <button class="page-tab" onclick="switchPage('users')">👥 联系人 · 在线用户</button>
+  <button class="page-tab" onclick="switchPage('files')">📁 文件传输记录</button>
+  <button class="page-tab" onclick="switchPage('settings')">⚙️ 设置</button>
+  <button class="page-tab" onclick="switchPage('empty')">🌐 空状态 · 等待用户</button>
+</div>
+
+<!-- ===================== 原型图画布 ===================== -->
+<div class="canvas-wrap">
+  <div class="canvas-label">
+    <div class="dot r"></div>
+    <div class="dot y"></div>
+    <div class="dot g"></div>
+    <span style="margin-left:8px;font-weight:600;">CubicleChat</span>
+    <span>— 局域网通讯工具</span>
+  </div>
+
+  <!-- ===== 页面 1：主界面 ===== -->
+  <div class="page active" id="page-main" style="flex-direction:column;">
+    <div class="app" id="app-main">
+      <!-- 标题栏 -->
+      <div class="titlebar">
+        <div class="titlebar-dots">
+          <div class="titlebar-dot" style="background:#FF5F57"></div>
+          <div class="titlebar-dot" style="background:#FFBC2E"></div>
+          <div class="titlebar-dot" style="background:#28C840"></div>
+        </div>
+        <div class="titlebar-title">CubicleChat</div>
+      </div>
+      <div class="app-body">
+        <!-- 导航栏 -->
+        <div class="nav">
+          <div class="nav-avatar" title="我的资料 - 张明" onclick="switchPage('settings')">
+            张
+            <div class="status-dot"></div>
+          </div>
+          <button class="nav-btn active" title="会话列表" onclick="switchNav(this,'main')">💬</button>
+          <button class="nav-btn" title="联系人/在线用户" onclick="switchPage('users')">👥</button>
+          <button class="nav-btn" title="文件传输记录" onclick="switchPage('files')">
+            📁
+          </button>
+          <div class="nav-spacer"></div>
+          <button class="nav-btn" title="设置" onclick="switchPage('settings')">⚙️</button>
+        </div>
+
+        <!-- 会话列表 -->
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <div class="sidebar-title">消息</div>
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" placeholder="搜索会话或消息..." id="searchInput" oninput="filterSessions(this.value)">
+            </div>
+          </div>
+          <div class="sidebar-list" id="sessionList">
+            <!-- 会话项由 JS 生成 -->
+          </div>
+        </div>
+
+        <!-- 聊天区 -->
+        <div class="chat-area">
+          <!-- 对话顶栏 -->
+          <div class="chat-header">
+            <div class="chat-header-avatar" style="background:#A4C8E8">李</div>
+            <div class="chat-header-info">
+              <div class="chat-header-name">李小华</div>
+              <div class="chat-header-status">● 在线 · 192.168.1.105</div>
+            </div>
+            <div class="chat-header-actions">
+              <button class="icon-btn" title="搜索消息">🔍</button>
+              <button class="icon-btn" title="更多操作">⋯</button>
+            </div>
+          </div>
+
+          <!-- 消息列表 -->
+          <div class="msg-list" id="msgList">
+            <div class="msg-date-divider">今天</div>
+
+            <!-- 对方消息 -->
+            <div class="msg-row">
+              <div class="msg-avatar" style="background:#A4C8E8">李</div>
+              <div class="msg-content">
+                <div class="msg-sender">李小华</div>
+                <div class="bubble other">你好！那个设计稿改好了吗，下午开会要用</div>
+                <div class="msg-meta">
+                  <span>09:32</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自己消息 -->
+            <div class="msg-row self">
+              <div class="msg-avatar" style="background:#2D7DD2">张</div>
+              <div class="msg-content">
+                <div class="bubble self">好的，正在处理，稍等一下</div>
+                <div class="msg-meta">
+                  <span>09:33</span>
+                  <span class="read-tick">✓✓</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 图片消息 -->
+            <div class="msg-row self">
+              <div class="msg-avatar" style="background:#2D7DD2">张</div>
+              <div class="msg-content">
+                <div class="img-bubble img-bubble-border">
+                  <div style="width:200px;height:140px;background:linear-gradient(135deg,#E8F1FB,#2D7DD2);display:flex;align-items:center;justify-content:center;color:#fff;font-size:40px;border-radius:8px;">🖼️</div>
+                </div>
+                <div class="msg-meta">
+                  <span>09:35</span>
+                  <span class="read-tick">✓✓</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 对方消息 -->
+            <div class="msg-row">
+              <div class="msg-avatar" style="background:#A4C8E8">李</div>
+              <div class="msg-content">
+                <div class="msg-sender">李小华</div>
+                <div class="bubble other">好的，我看看，对了那个文档也一起发给我吧</div>
+                <div class="msg-meta">
+                  <span>09:36</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 文件消息 -->
+            <div class="msg-row self">
+              <div class="msg-avatar" style="background:#2D7DD2">张</div>
+              <div class="msg-content">
+                <div class="file-bubble self">
+                  <div class="file-bubble-top">
+                    <span class="file-icon">📄</span>
+                    <div>
+                      <div class="file-name">产品需求文档_v2.3.pdf</div>
+                      <div class="file-size">3.2 MB</div>
+                    </div>
+                  </div>
+                  <div class="file-divider"></div>
+                  <div class="file-actions">
+                    <button class="file-action-btn">打开文件夹</button>
+                  </div>
+                </div>
+                <div class="msg-meta">
+                  <span>09:37</span>
+                  <span class="read-tick">✓✓</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 撤回消息 -->
+            <div class="msg-row">
+              <div class="msg-avatar" style="background:#A4C8E8">李</div>
+              <div class="msg-content">
+                <div class="msg-retracted">李小华 撤回了一条消息</div>
+              </div>
+            </div>
+
+            <!-- 对方最新消息 -->
+            <div class="msg-row">
+              <div class="msg-avatar" style="background:#A4C8E8">李</div>
+              <div class="msg-content">
+                <div class="msg-sender">李小华</div>
+                <div class="bubble other">收到了！谢谢，那我先处理一下，有问题再找你</div>
+                <div class="msg-meta"><span>09:38</span></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 正在输入提示 -->
+          <div class="typing-indicator" id="typingIndicator" style="display:none;">
+            <span>李小华正在输入</span>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+          </div>
+
+          <!-- 输入框 -->
+          <div class="input-area" style="position:relative;">
+            <!-- 表情面板 -->
+            <div class="emoji-panel" id="emojiPanel">
+              <div class="emoji-grid" id="emojiGrid"></div>
+            </div>
+            <div class="input-toolbar">
+              <button class="toolbar-btn" title="发送图片">🖼️</button>
+              <button class="toolbar-btn" title="发送文件">📎</button>
+              <button class="toolbar-btn" title="表情" onclick="toggleEmoji()">😊</button>
+              <div class="toolbar-spacer"></div>
+              <span style="font-size:11px;color:var(--text-disabled)">清空</span>
+            </div>
+            <div class="input-box" contenteditable="true" placeholder="输入消息，Enter 发送..." id="inputBox" onkeydown="handleKey(event)" oninput="onTyping()"></div>
+            <div class="input-footer">
+              <span class="send-hint">Enter 发送 · Shift+Enter 换行</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 右键菜单 -->
+    <div class="ctx-menu" id="ctxMenu">
+      <div class="ctx-item">📋 复制文本</div>
+      <div class="ctx-item">↩️ 引用回复</div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-item">↪️ 转发给...</div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-item danger">🗑️ 撤回（2分钟内）</div>
+    </div>
+  </div>
+
+  <!-- ===== 页面 2：在线用户 ===== -->
+  <div class="page" id="page-users" style="flex-direction:column;">
+    <div class="app" id="app-users">
+      <div class="titlebar">
+        <div class="titlebar-dots">
+          <div class="titlebar-dot" style="background:#FF5F57"></div>
+          <div class="titlebar-dot" style="background:#FFBC2E"></div>
+          <div class="titlebar-dot" style="background:#28C840"></div>
+        </div>
+        <div class="titlebar-title">CubicleChat</div>
+      </div>
+      <div class="app-body">
+        <div class="nav">
+          <div class="nav-avatar" title="我的资料">张<div class="status-dot"></div></div>
+          <button class="nav-btn" onclick="switchPage('main')">💬</button>
+          <button class="nav-btn active">👥</button>
+          <button class="nav-btn" onclick="switchPage('files')">📁</button>
+          <div class="nav-spacer"></div>
+          <button class="nav-btn" onclick="switchPage('settings')">⚙️</button>
+        </div>
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <div class="sidebar-title">在线用户</div>
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" placeholder="搜索用户...">
+            </div>
+          </div>
+          <div class="sidebar-list" id="userList"></div>
+        </div>
+        <div class="chat-area" style="background:var(--bg-surface);">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <div class="empty-title">选择一位在线用户开始聊天</div>
+            <div class="empty-desc">点击左侧用户旁的"发消息"按钮<br>或直接在会话列表中找到该用户</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 页面 3：文件传输 ===== -->
+  <div class="page" id="page-files" style="flex-direction:column;">
+    <div class="app" id="app-files">
+      <div class="titlebar">
+        <div class="titlebar-dots">
+          <div class="titlebar-dot" style="background:#FF5F57"></div>
+          <div class="titlebar-dot" style="background:#FFBC2E"></div>
+          <div class="titlebar-dot" style="background:#28C840"></div>
+        </div>
+        <div class="titlebar-title">CubicleChat</div>
+      </div>
+      <div class="app-body">
+        <div class="nav">
+          <div class="nav-avatar">张<div class="status-dot"></div></div>
+          <button class="nav-btn" onclick="switchPage('main')">💬</button>
+          <button class="nav-btn" onclick="switchPage('users')">👥</button>
+          <button class="nav-btn active">📁</button>
+          <div class="nav-spacer"></div>
+          <button class="nav-btn" onclick="switchPage('settings')">⚙️</button>
+        </div>
+        <div class="files-page">
+          <div class="chat-header">
+            <div style="font-size:16px;font-weight:600;">文件传输记录</div>
+            <div class="chat-header-actions">
+              <button class="icon-btn" title="按时间排序">🕐</button>
+              <button class="icon-btn" title="按大小排序">📊</button>
+            </div>
+          </div>
+          <div class="files-toolbar">
+            <button class="sort-btn active">全部</button>
+            <button class="sort-btn">传输中</button>
+            <button class="sort-btn">已完成</button>
+            <button class="sort-btn">失败</button>
+          </div>
+          <div class="file-list" id="fileList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 页面 4：设置 ===== -->
+  <div class="page" id="page-settings" style="flex-direction:column;">
+    <div class="app" id="app-settings">
+      <div class="titlebar">
+        <div class="titlebar-dots">
+          <div class="titlebar-dot" style="background:#FF5F57"></div>
+          <div class="titlebar-dot" style="background:#FFBC2E"></div>
+          <div class="titlebar-dot" style="background:#28C840"></div>
+        </div>
+        <div class="titlebar-title">CubicleChat</div>
+      </div>
+      <div class="app-body">
+        <div class="nav">
+          <div class="nav-avatar">张<div class="status-dot"></div></div>
+          <button class="nav-btn" onclick="switchPage('main')">💬</button>
+          <button class="nav-btn" onclick="switchPage('users')">👥</button>
+          <button class="nav-btn" onclick="switchPage('files')">📁</button>
+          <div class="nav-spacer"></div>
+          <button class="nav-btn active">⚙️</button>
+        </div>
+        <div class="settings-page">
+          <div class="settings-nav">
+            <div class="settings-nav-item active" onclick="switchSettings(this,'profile')"><span class="sicon">👤</span> 个人资料</div>
+            <div class="settings-nav-item" onclick="switchSettings(this,'notify')"><span class="sicon">🔔</span> 通知</div>
+            <div class="settings-nav-item" onclick="switchSettings(this,'network')"><span class="sicon">🌐</span> 网络</div>
+            <div class="settings-nav-item" onclick="switchSettings(this,'storage')"><span class="sicon">💾</span> 存储</div>
+            <div class="settings-nav-item" onclick="switchSettings(this,'appearance')"><span class="sicon">🎨</span> 外观</div>
+            <div class="settings-nav-item" onclick="switchSettings(this,'about')"><span class="sicon">ℹ️</span> 关于</div>
+          </div>
+          <div class="settings-content" id="settingsContent">
+            <!-- 动态渲染 -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 页面 5：空状态 ===== -->
+  <div class="page" id="page-empty" style="flex-direction:column;">
+    <div class="app" id="app-empty">
+      <div class="titlebar">
+        <div class="titlebar-dots">
+          <div class="titlebar-dot" style="background:#FF5F57"></div>
+          <div class="titlebar-dot" style="background:#FFBC2E"></div>
+          <div class="titlebar-dot" style="background:#28C840"></div>
+        </div>
+        <div class="titlebar-title">CubicleChat</div>
+      </div>
+      <!-- 网络警告横幅 -->
+      <div class="warning-banner">
+        <span>⚠️</span>
+        <span>未检测到局域网连接，请检查网络设置</span>
+        <button style="font-size:11px;background:none;border:none;cursor:pointer;color:#92400E;font-weight:600;">重试</button>
+      </div>
+      <div class="app-body">
+        <div class="nav">
+          <div class="nav-avatar">张<div class="status-dot" style="background:var(--status-away)"></div></div>
+          <button class="nav-btn active">💬</button>
+          <button class="nav-btn" onclick="switchPage('users')">👥</button>
+          <button class="nav-btn">📁</button>
+          <div class="nav-spacer"></div>
+          <button class="nav-btn" onclick="switchPage('settings')">⚙️</button>
+        </div>
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <div class="sidebar-title">消息</div>
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" placeholder="搜索...">
+            </div>
+          </div>
+          <!-- 骨架屏 -->
+          <div class="sidebar-list" style="padding:8px 12px;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <div class="skeleton" style="width:40px;height:40px;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                <div class="skeleton" style="height:13px;width:60%;"></div>
+                <div class="skeleton" style="height:11px;width:80%;"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <div class="skeleton" style="width:40px;height:40px;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                <div class="skeleton" style="height:13px;width:50%;"></div>
+                <div class="skeleton" style="height:11px;width:70%;"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <div class="skeleton" style="width:40px;height:40px;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                <div class="skeleton" style="height:13px;width:55%;"></div>
+                <div class="skeleton" style="height:11px;width:75%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="chat-area">
+          <div class="empty-state">
+            <div class="empty-icon">🌐</div>
+            <div class="empty-title">等待局域网内的小伙伴上线...</div>
+            <div class="empty-desc">CubicleChat 正在扫描局域网<br>自动发现在线用户，无需手动配置</div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-disabled);">广播端口 2425 · 每 30 秒发送心跳</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 说明卡片 -->
+<div class="info-cards">
+  <div class="info-card">
+    <h3>🏠 主界面交互</h3>
+    <ul>
+      <li>点击左侧会话切换聊天</li>
+      <li>Enter 键发送消息</li>
+      <li>右键消息气泡弹出菜单</li>
+      <li>点击笑脸打开表情面板</li>
+      <li>点击头像切换用户</li>
+    </ul>
+  </div>
+  <div class="info-card">
+    <h3>👥 用户发现机制</h3>
+    <ul>
+      <li>UDP 广播端口 2425</li>
+      <li>心跳周期 30 秒</li>
+      <li>90 秒无响应标记离线</li>
+      <li>10 秒内自动发现用户</li>
+      <li>支持在线/忙碌/离开/隐身</li>
+    </ul>
+  </div>
+  <div class="info-card">
+    <h3>📁 文件传输</h3>
+    <ul>
+      <li>拖放文件到聊天区发送</li>
+      <li>单文件最大 2 GB</li>
+      <li>512 KB 分块 TCP 传输</li>
+      <li>断点续传支持</li>
+      <li>MD5 完整性校验</li>
+    </ul>
+  </div>
+  <div class="info-card">
+    <h3>🎨 设计规范</h3>
+    <ul>
+      <li>三栏布局，最小 900px</li>
+      <li>强调色 #2D7DD2</li>
+      <li>圆角 8px / 12px</li>
+      <li>严禁弹窗，嵌入面板</li>
+      <li>支持亮色/暗色主题</li>
+    </ul>
+  </div>
+  <div class="info-card">
+    <h3>⌨️ 快捷键</h3>
+    <ul>
+      <li>Enter — 发送消息</li>
+      <li>Shift+Enter — 换行</li>
+      <li>Ctrl+F — 搜索历史</li>
+      <li>Ctrl+, — 打开设置</li>
+      <li>Ctrl+Tab — 切换会话</li>
+    </ul>
+  </div>
+</div>
+
+<!-- 暗色模式切换 -->
+<button id="darkToggle" onclick="toggleDark()" title="切换暗色/亮色主题">🌙</button>
+
+<script>
+// ============ 数据 ============
+const sessions = [
+  { id: 1, name: '李小华', preview: '收到了！谢谢，那我先处理一下', time: '09:38', unread: 0, color: '#A4C8E8', status: 'online', active: true },
+  { id: 2, name: '研发组', preview: '王建国: 今天下午3点开会', time: '09:21', unread: 3, color: '#A4E8B8', status: null, isGroup: true },
+  { id: 3, name: '张丽萍', preview: '好的，我知道了', time: '昨天', unread: 0, color: '#C4A4E8', status: 'busy' },
+  { id: 4, name: '陈志远', preview: '那个 Bug 我已经修了', time: '昨天', unread: 1, color: '#E8D0A4', status: 'away' },
+  { id: 5, name: '刘洋', preview: '下午有空吗？', time: '周一', unread: 0, color: '#A4A4E8', status: 'online' },
+  { id: 6, name: '设计组', preview: '周明: 新原型图我传到文件里了', time: '周一', unread: 0, color: '#E8A4A4', status: null, isGroup: true },
+];
+
+const onlineUsers = [
+  { name: '李小华', status: 'online', ip: '192.168.1.105', color: '#A4C8E8' },
+  { name: '刘洋', status: 'online', ip: '192.168.1.112', color: '#A4A4E8' },
+  { name: '赵磊', status: 'online', ip: '192.168.1.108', color: '#A4E8E0' },
+  { name: '孙燕', status: 'online', ip: '192.168.1.117', color: '#E8C4A4' },
+  { name: '张丽萍', status: 'busy', ip: '192.168.1.103', color: '#C4A4E8' },
+  { name: '陈志远', status: 'away', ip: '192.168.1.121', color: '#E8D0A4' },
+  { name: '林浩', status: 'away', ip: '192.168.1.130', color: '#A4A4E8' },
+];
+
+const fileRecords = [
+  { name: '产品需求文档_v2.3.pdf', size: '3.2 MB', from: '发送给 李小华', time: '09:37', status: 'done', icon: '📄' },
+  { name: 'UI设计稿_最终版.sketch', size: '48.5 MB', from: '接收自 王建国', time: '09:21', status: 'done', icon: '🎨' },
+  { name: '季度汇报_2026Q1.xlsx', size: '1.1 MB', from: '发送给 研发组', time: '昨天 16:45', status: 'done', icon: '📊' },
+  { name: '服务器日志_backup.zip', size: '256.0 MB', from: '接收自 陈志远', time: '昨天 14:20', status: 'progress', progress: 67, speed: '12.3 MB/s', icon: '🗜️' },
+  { name: '项目源代码_v1.5.tar.gz', size: '1.8 GB', from: '发送给 刘洋', time: '昨天 11:00', status: 'fail', icon: '📦' },
+  { name: '会议录音_0416.mp3', size: '22.4 MB', from: '接收自 张丽萍', time: '周一 15:30', status: 'done', icon: '🎵' },
+];
+
+const settingsPages = {
+  profile: `
+    <div class="settings-section-title">个人资料</div>
+    <div class="settings-row">
+      <div><div class="settings-label">头像</div><div class="settings-desc">PNG/JPG，自动裁剪为 64×64</div></div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="avatar-preview">张</div>
+        <div class="avatar-actions">
+          <button class="outline-btn">更换图片</button>
+          <button class="outline-btn">删除头像</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">我的昵称</div><div class="settings-desc">2-20 字符，默认为主机名</div></div>
+      <input class="settings-input" value="张明" type="text">
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">在线状态</div></div>
+      <div class="radio-group">
+        <label class="radio-item"><input type="radio" name="status" checked> <span style="color:var(--status-online)">●</span> 在线</label>
+        <label class="radio-item"><input type="radio" name="status"> <span style="color:var(--status-busy)">●</span> 忙碌</label>
+        <label class="radio-item"><input type="radio" name="status"> <span style="color:var(--status-away)">●</span> 离开</label>
+        <label class="radio-item"><input type="radio" name="status"> <span style="color:var(--status-offline)">●</span> 隐身</label>
+      </div>
+    </div>`,
+  notify: `
+    <div class="settings-section-title">通知设置</div>
+    <div class="settings-row">
+      <div><div class="settings-label">新消息通知</div><div class="settings-desc">收到新消息时显示系统通知</div></div>
+      <div class="toggle on" onclick="toggleSwitch(this)"></div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">任务栏图标闪烁</div><div class="settings-desc">最小化时收到消息闪烁图标</div></div>
+      <div class="toggle on" onclick="toggleSwitch(this)"></div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">通知声音</div><div class="settings-desc">收到消息时播放提示音</div></div>
+      <div class="toggle" onclick="toggleSwitch(this)"></div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">全局免打扰</div><div class="settings-desc">暂停所有通知</div></div>
+      <div class="toggle" onclick="toggleSwitch(this)"></div>
+    </div>`,
+  network: `
+    <div class="settings-section-title">网络配置</div>
+    <div class="settings-row">
+      <div><div class="settings-label">UDP 广播端口</div><div class="settings-desc">与飞秋兼容，默认 2425</div></div>
+      <input class="settings-input" value="2425" type="number" style="width:120px;">
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">TCP 文件传输端口</div><div class="settings-desc">默认 2426</div></div>
+      <input class="settings-input" value="2426" type="number" style="width:120px;">
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">心跳广播间隔</div><div class="settings-desc">用于在线状态同步（秒）</div></div>
+      <input class="settings-input" value="30" type="number" style="width:120px;">
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">离线超时时间</div><div class="settings-desc">超时后标记为离线（秒）</div></div>
+      <input class="settings-input" value="90" type="number" style="width:120px;">
+    </div>`,
+  storage: `
+    <div class="settings-section-title">存储管理</div>
+    <div class="settings-row">
+      <div><div class="settings-label">文件接收目录</div><div class="settings-desc">接收的文件保存路径</div></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input class="settings-input" value="~/Downloads/CubicleChat" type="text">
+        <button class="outline-btn">浏览</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">历史消息保留天数</div><div class="settings-desc">0 表示永久保留</div></div>
+      <input class="settings-input" value="180" type="number" style="width:120px;">
+    </div>
+    <div class="settings-row" style="border-bottom:none;">
+      <div><div class="settings-label">数据管理</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="outline-btn">导出聊天记录</button>
+        <button class="outline-btn">压缩数据库</button>
+        <button class="outline-btn" style="color:var(--error);border-color:var(--error);">清空全部消息</button>
+      </div>
+    </div>`,
+  appearance: `
+    <div class="settings-section-title">外观设置</div>
+    <div class="settings-row">
+      <div><div class="settings-label">主题</div></div>
+      <select class="select-input">
+        <option>亮色</option>
+        <option>暗色</option>
+        <option>跟随系统</option>
+      </select>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">字体大小</div></div>
+      <select class="select-input">
+        <option>小（12px）</option>
+        <option selected>中（14px）</option>
+        <option>大（16px）</option>
+      </select>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">语言</div></div>
+      <select class="select-input">
+        <option selected>简体中文</option>
+        <option>English</option>
+      </select>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">开机自启</div><div class="settings-desc">仅 Windows 平台</div></div>
+      <div class="toggle on" onclick="toggleSwitch(this)"></div>
+    </div>
+    <div class="settings-row">
+      <div><div class="settings-label">最小化到托盘</div></div>
+      <div class="toggle on" onclick="toggleSwitch(this)"></div>
+    </div>`,
+  about: `
+    <div class="settings-section-title">关于 CubicleChat</div>
+    <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid var(--border);">
+      <div style="width:60px;height:60px;border-radius:14px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:28px;">💬</div>
+      <div>
+        <div style="font-size:18px;font-weight:600;">CubicleChat</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">版本 1.0.0-beta</div>
+        <div style="font-size:12px;color:var(--text-disabled);margin-top:2px;">局域网即时通讯工具</div>
+      </div>
+    </div>
+    <div class="settings-row"><div class="settings-label">运行平台</div><span style="font-size:13px;color:var(--text-secondary);">Windows 10 x64</span></div>
+    <div class="settings-row"><div class="settings-label">数据目录</div><span style="font-size:13px;color:var(--text-secondary);">C:\\Users\\张明\\AppData\\Roaming\\CubicleChat</span></div>
+    <div class="settings-row" style="border:none;"><div class="settings-label">数据库大小</div><span style="font-size:13px;color:var(--text-secondary);">12.4 MB</span></div>`,
+};
+
+// ============ 状态颜色 ============
+const statusDotColor = { online: '#22C55E', busy: '#F59E0B', away: '#9CA3AF', offline: '#D1D5DB' };
+const statusLabel = { online: '在线', busy: '忙碌', away: '离开', offline: '离线' };
+
+// ============ 渲染：会话列表 ============
+function renderSessions(filter = '') {
+  const list = document.getElementById('sessionList');
+  if (!list) return;
+  const filtered = sessions.filter(s => s.name.includes(filter) || s.preview.includes(filter));
+  list.innerHTML = filtered.map(s => `
+    <div class="session-item ${s.active ? 'active' : ''}" onclick="selectSession(${s.id})">
+      <div class="avatar" style="background:${s.color}">
+        ${s.isGroup ? '群' : s.name[0]}
+        ${s.status ? `<div class="status-dot" style="background:${statusDotColor[s.status]}"></div>` : ''}
+      </div>
+      <div class="session-info">
+        <div class="session-name">${s.name}</div>
+        <div class="session-preview">${s.preview}</div>
+      </div>
+      <div class="session-meta">
+        <span class="session-time">${s.time}</span>
+        ${s.unread > 0 ? `<span class="badge">${s.unread}</span>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function selectSession(id) {
+  sessions.forEach(s => s.active = s.id === id);
+  renderSessions();
+}
+function filterSessions(val) { renderSessions(val); }
+
+// ============ 渲染：在线用户 ============
+function renderUsers() {
+  const list = document.getElementById('userList');
+  if (!list) return;
+  const grouped = { online: [], busy: [], away: [] };
+  onlineUsers.forEach(u => grouped[u.status] && grouped[u.status].push(u));
+
+  let html = '';
+  const groups = [
+    { key: 'online', label: '在线', count: grouped.online.length },
+    { key: 'busy', label: '忙碌', count: grouped.busy.length },
+    { key: 'away', label: '离开', count: grouped.away.length },
+  ];
+  groups.forEach(g => {
+    if (!grouped[g.key].length) return;
+    html += `<div class="group-header">
+      <span>${g.label}</span>
+      <span class="group-count">${g.count}</span>
+    </div>`;
+    grouped[g.key].forEach(u => {
+      html += `<div class="user-item">
+        <div class="avatar" style="width:32px;height:32px;font-size:12px;background:${u.color}">${u.name[0]}</div>
+        <span class="user-name">${u.name}</span>
+        <span style="font-size:11px;color:var(--text-disabled)">${u.ip}</span>
+        <span class="user-action" onclick="switchPage('main')">发消息</span>
+      </div>`;
+    });
+  });
+  list.innerHTML = html;
+}
+
+// ============ 渲染：文件列表 ============
+function renderFiles() {
+  const list = document.getElementById('fileList');
+  if (!list) return;
+  list.innerHTML = fileRecords.map(f => {
+    let statusHtml = '';
+    if (f.status === 'done') {
+      statusHtml = `<div style="display:flex;gap:4px;">
+        <button class="small-btn">打开</button>
+        <button class="small-btn">定位</button>
+      </div>`;
+    } else if (f.status === 'progress') {
+      statusHtml = `<div class="progress-wrap" style="width:120px;">
+        <div class="progress-bar"><div class="progress-fill" style="width:${f.progress}%"></div></div>
+        <div class="progress-text">${f.progress}% · ${f.speed}</div>
+      </div>`;
+    } else if (f.status === 'fail') {
+      statusHtml = `<div style="display:flex;gap:4px;">
+        <button class="small-btn" style="color:var(--error);border-color:var(--error);">失败</button>
+        <button class="small-btn">重试</button>
+      </div>`;
+    }
+    return `<div class="file-row">
+      <div class="file-row-icon">${f.icon}</div>
+      <div class="file-row-info">
+        <div class="file-row-name">${f.name}</div>
+        <div class="file-row-meta">${f.from} · ${f.size} · ${f.time}</div>
+      </div>
+      <div class="file-row-actions">${statusHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+// ============ 渲染：设置 ============
+function renderSettings(key) {
+  const el = document.getElementById('settingsContent');
+  if (el) el.innerHTML = settingsPages[key] || '';
+}
+function switchSettings(btn, key) {
+  document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSettings(key);
+}
+
+// ============ 渲染：表情面板 ============
+const emojis = ['😀','😂','🥰','😎','🤔','😅','👍','❤️','🔥','✅','🎉','💡','📌','🚀','👀','💬','🎨','📊','🗓️','⚡','😭','😡','🙏','👋','✨','🌟','💪','🤝','👏','🙌','🤦','🤷','😴','🤗','😤','😏','🫡','🫠','💀','🫶'];
+function renderEmoji() {
+  const grid = document.getElementById('emojiGrid');
+  if (!grid) return;
+  grid.innerHTML = emojis.map(e => `<div class="emoji-btn" onclick="insertEmoji('${e}')">${e}</div>`).join('');
+}
+
+// ============ 交互函数 ============
+function switchPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+  const page = document.getElementById(`page-${name}`);
+  if (page) page.classList.add('active');
+  const idx = { main:0, users:1, files:2, settings:3, empty:4 };
+  const tabs = document.querySelectorAll('.page-tab');
+  if (tabs[idx[name]]) tabs[idx[name]].classList.add('active');
+
+  // 渲染对应页面内容
+  if (name === 'main') renderSessions();
+  if (name === 'users') renderUsers();
+  if (name === 'files') renderFiles();
+  if (name === 'settings') renderSettings('profile');
+}
+
+function switchNav(btn, page) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function toggleEmoji() {
+  const panel = document.getElementById('emojiPanel');
+  if (panel) panel.classList.toggle('show');
+}
+
+function insertEmoji(e) {
+  const box = document.getElementById('inputBox');
+  if (box) {
+    box.focus();
+    document.execCommand('insertText', false, e);
+  }
+  const panel = document.getElementById('emojiPanel');
+  if (panel) panel.classList.remove('show');
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+let typingTimer;
+function onTyping() {
+  clearTimeout(typingTimer);
+}
+
+function sendMessage() {
+  const box = document.getElementById('inputBox');
+  const text = box ? box.innerText.trim() : '';
+  if (!text) return;
+  // 模拟添加消息
+  const list = document.getElementById('msgList');
+  if (list) {
+    const row = document.createElement('div');
+    row.className = 'msg-row self';
+    row.innerHTML = `
+      <div class="msg-avatar" style="background:#2D7DD2">张</div>
+      <div class="msg-content">
+        <div class="bubble self">${escapeHtml(text)}</div>
+        <div class="msg-meta">
+          <span>${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span>
+          <span class="read-tick" style="color:#bbb">✓</span>
+        </div>
+      </div>`;
+    list.appendChild(row);
+    list.scrollTop = list.scrollHeight;
+    // 模拟正在输入
+    const ti = document.getElementById('typingIndicator');
+    if (ti) {
+      ti.style.display = 'flex';
+      setTimeout(() => { ti.style.display = 'none'; }, 3000);
+    }
+  }
+  if (box) box.innerText = '';
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleSwitch(el) {
+  el.classList.toggle('on');
+}
+
+let dark = false;
+function toggleDark() {
+  dark = !dark;
+  document.body.setAttribute('data-theme', dark ? 'dark' : '');
+  // 同时更新所有 app 元素
+  document.querySelectorAll('.app, .canvas-wrap').forEach(el => {
+    el.setAttribute('data-theme', dark ? 'dark' : '');
+  });
+  document.getElementById('darkToggle').textContent = dark ? '☀️' : '🌙';
+  document.body.style.background = dark ? '#111' : '#E0E0E0';
+}
+
+// 右键菜单
+document.addEventListener('contextmenu', e => {
+  const bubble = e.target.closest('.bubble, .file-bubble');
+  if (bubble) {
+    e.preventDefault();
+    const menu = document.getElementById('ctxMenu');
+    if (menu) {
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+      menu.classList.add('show');
+    }
+  }
+});
+document.addEventListener('click', () => {
+  const menu = document.getElementById('ctxMenu');
+  if (menu) menu.classList.remove('show');
+  const ep = document.getElementById('emojiPanel');
+  if (ep) ep.classList.remove('show');
+});
+
+// ============ 初始化 ============
+document.addEventListener('DOMContentLoaded', () => {
+  renderSessions();
+  renderEmoji();
+  renderSettings('profile');
+});
+</script>
+</body>
+</html>
