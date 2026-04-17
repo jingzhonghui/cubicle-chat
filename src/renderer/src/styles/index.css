@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 设计令牌 */
+:root {
+  --bg-base: #F5F5F5;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #FAFAFA;
+  --bg-input: #F0F0F0;
+  --accent: #2D7DD2;
+  --accent-light: #E8F1FB;
+  --accent-hover: #2568B8;
+  --text-primary: #1A1A1A;
+  --text-secondary: #6B7280;
+  --text-disabled: #9CA3AF;
+  --text-on-accent: #FFFFFF;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+  --status-online: #22C55E;
+  --status-busy: #F59E0B;
+  --status-away: #9CA3AF;
+  --status-offline: #D1D5DB;
+  --error: #EF4444;
+  --warning: #F59E0B;
+  --success: #22C55E;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --nav-w: 48px;
+  --sidebar-w: 240px;
+}
+
+[data-theme="dark"] {
+  --bg-base: #1C1C1E;
+  --bg-surface: #2C2C2E;
+  --bg-elevated: #3A3A3C;
+  --bg-input: #3A3A3C;
+  --accent: #3A8EE6;
+  --accent-light: #1A3A5C;
+  --accent-hover: #4A9EF7;
+  --text-primary: #F2F2F7;
+  --text-secondary: #8E8E93;
+  --text-disabled: #636366;
+  --border: #38383A;
+  --border-strong: #48484A;
+}
+
+/* 全局重置 */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", -apple-system, sans-serif;
+  font-size: 14px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* 禁止选择 */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 拖拽区域 */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 输入框占位符 */
+.input-placeholder:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-disabled);
+}
+
+/* 动画 */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-elevated) 50%, var(--bg-input) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* 消息气泡动画 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.msg-animate {
+  animation: fadeInUp 0.15s ease-out;
+}
+
+/* 工具类 */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Focus ring */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
