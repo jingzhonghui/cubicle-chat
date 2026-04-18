@@ -23,6 +23,27 @@ interface FileTransfer {
   status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
   isImage: boolean
   direction?: 'send' | 'receive'
+  filePath?: string
+  thumbnailData?: string
+}
+
+// file:get IPC 返回的文件记录类型
+interface FileRecord {
+  fileId: string
+  fileName: string
+  filePath?: string
+  fileSize: number
+  mimeType: string
+  fileMd5?: string
+  direction: 'send' | 'receive'
+  peerId: string
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
+  transferredBytes: number
+  isImage: boolean
+  thumbnailData?: string
+  startedAt?: number
+  completedAt?: number
+  createdAt: number
 }
 
 interface MessageBubbleProps {
@@ -32,12 +53,26 @@ interface MessageBubbleProps {
 
 function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   const [fileTransfer, setFileTransfer] = useState<FileTransfer | null>(null)
+  const [imageUrl, setImageUrl] = useState<string>('')
+
+  // 将本地文件路径转换为 local-resource:// 协议 URL
+  // 使用三个斜杠 local-resource:/// 确保路径在 pathname 中
+  // Windows 路径中的反斜杠需要转为正斜杠
+  const toLocalResourceUrl = (filePath: string): string => {
+    const normalizedPath = filePath.replace(/\\/g, '/')
+    return `local-resource:///${normalizedPath}`
+  }
 
   // 加载文件状态（组件挂载时从数据库获取）
   useEffect(() => {
     if (message.fileId && (message.contentType === 'file' || message.contentType === 'image')) {
+      // 对于图片消息，如果 content 已经是 local-resource:// URL（发送中的临时消息），直接使用
+      if (message.contentType === 'image' && message.content.startsWith('local-resource://')) {
+        setImageUrl(message.content)
+      }
+
       // 先从数据库加载文件状态
-      window.electronAPI.invoke<FileTransfer | null>('file:get', { fileId: message.fileId })
+      window.electronAPI.invoke<FileRecord | null>('file:get', { fileId: message.fileId })
         .then((fileData) => {
           if (fileData) {
             // 转换为 FileTransfer 格式
@@ -49,9 +84,19 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
               status: fileData.status,
               progress: fileData.status === 'completed' ? 100 : 0,
               speed: 0,
-              isImage: fileData.isImage
+              isImage: fileData.isImage,
+              filePath: fileData.filePath,
+              thumbnailData: fileData.thumbnailData
             }
             setFileTransfer(transfer)
+
+            // 如果是图片且文件已完成传输，使用 local-resource:// 协议加载本地图片
+            if (message.contentType === 'image' && fileData.status === 'completed' && fileData.filePath) {
+              setImageUrl(toLocalResourceUrl(fileData.filePath))
+            } else if (message.contentType === 'image' && fileData.thumbnailData) {
+              // 传输中或未完成时，使用缩略图
+              setImageUrl(fileData.thumbnailData)
+            }
           }
         })
         .catch((error) => {
@@ -72,6 +117,10 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
       const unsubscribeComplete = window.electronAPI.on('file:complete', (data: FileTransfer) => {
         if (data.transferId === message.fileId) {
           setFileTransfer(data)
+          // 图片传输完成后，使用 local-resource:// 协议加载本地图片
+          if (message.contentType === 'image' && data.status === 'completed' && data.filePath) {
+            setImageUrl(toLocalResourceUrl(data.filePath))
+          }
         }
       })
 
@@ -171,7 +220,13 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
     if (isImage) {
       return (
         <div className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]">
-          <img src={message.content} alt="图片" className="w-full block max-h-[240px] object-cover" />
+          {imageUrl ? (
+            <img src={imageUrl} alt="图片" className="w-full block max-h-[240px] object-cover" />
+          ) : (
+            <div className="w-[200px] h-[150px] bg-[var(--bg-base)] flex items-center justify-center text-[var(--text-secondary)] text-sm">
+              加载中...
+            </div>
+          )}
           {status === 'transferring' && (
             <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
               <div className="text-white text-sm font-medium">{progress}%</div>

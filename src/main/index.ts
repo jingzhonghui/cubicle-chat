@@ -1,9 +1,25 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, protocol } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from './utils'
 import log from 'electron-log'
 import { NetworkService } from './network/NetworkService'
 import { DatabaseService } from './database/DatabaseService'
+import fs from 'fs'
+import path from 'path'
+
+// 注册自定义协议（必须在 app.ready 之前调用）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-resource',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      standard: false,
+      bypassCSP: true,
+      stream: true
+    }
+  }
+])
 
 // 配置日志
 log.transports.file.level = 'info'
@@ -288,6 +304,63 @@ app.whenReady().then(async () => {
   log.info('CubicleChat 启动中...')
   log.info(`Electron 版本: ${process.versions.electron}`)
   log.info(`Node 版本: ${process.versions.node}`)
+
+  // 注册 local-resource 协议处理器
+  protocol.handle('local-resource', async (request) => {
+    try {
+      const urlStr = request.url
+
+      log.info(`local-resource 原始请求 URL: ${urlStr}`)
+
+      // 从 URL 中提取文件路径
+      // 格式: local-resource:///E:/Users/test/photo.jpg (非标准协议，路径保持原样)
+      let filePath = urlStr.replace(/^local-resource:\/\//i, '')
+
+      // 去除可能多余的前导斜杠（三个斜杠会产生一个多余的 /）
+      if (filePath.startsWith('/') && filePath.length > 2 && filePath.charAt(2) === ':') {
+        // Windows 路径如 /E:/Users/... → E:/Users/...
+        filePath = filePath.substring(1)
+      }
+
+      // 解码 URL 编码字符（处理中文路径、空格等）
+      filePath = decodeURIComponent(filePath)
+
+      log.info(`local-resource 解析文件路径: ${filePath}`)
+
+      // 安全检查：确保路径存在且是文件
+      if (!fs.existsSync(filePath)) {
+        log.warn(`local-resource: 文件不存在: ${filePath}`)
+        return new Response('File not found', { status: 404 })
+      }
+
+      const stat = fs.statSync(filePath)
+      if (!stat.isFile()) {
+        return new Response('Not a file', { status: 400 })
+      }
+
+      const data = await fs.promises.readFile(filePath)
+
+      // 根据扩展名推断 MIME 类型
+      const ext = path.extname(filePath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml'
+      }
+      const mimeType = mimeTypes[ext] || 'application/octet-stream'
+
+      return new Response(data, {
+        headers: { 'Content-Type': mimeType }
+      })
+    } catch (error) {
+      log.error('local-resource 协议处理失败:', error)
+      return new Response('Internal error', { status: 500 })
+    }
+  })
 
   // 设置应用 ID (Windows)
   electronApp.setAppUserModelId('com.cubicle.chat')

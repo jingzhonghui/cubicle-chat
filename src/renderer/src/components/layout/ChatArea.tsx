@@ -143,11 +143,12 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     try {
       const filePath = await window.electronAPI.invoke<string | null>('file:select')
       if (filePath && targetId) {
-        const fileName = getFileName(filePath)
         const isImage = true
         // 先添加到本地消息列表（临时消息）
+        // 图片临时消息的 content 使用 local-resource:// 协议 URL，以便立即显示
         const tempFileId = `temp-${Date.now()}`
-        await sendFileMessage(conversationId, fileName, tempFileId, isImage)
+        const imageUrl = `local-resource:///${filePath.replace(/\\/g, '/')}`
+        await sendFileMessage(conversationId, imageUrl, tempFileId, isImage)
         // 然后发送文件
         const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
         if (result?.success && result.transferId) {
@@ -174,7 +175,9 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         const isImage = isImageFile(fileName)
         // 先添加到本地消息列表（临时消息）
         const tempFileId = `temp-${Date.now()}`
-        await sendFileMessage(conversationId, fileName, tempFileId, isImage)
+        // 图片临时消息的 content 使用 local-resource:// 协议 URL，以便立即显示
+        const content = isImage ? `local-resource:///${filePath.replace(/\\/g, '/')}` : fileName
+        await sendFileMessage(conversationId, content, tempFileId, isImage)
         // 然后发送文件
         const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
         if (result?.success && result.transferId) {
