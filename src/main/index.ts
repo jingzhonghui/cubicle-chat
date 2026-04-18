@@ -178,6 +178,18 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('conversation:create', (_, data) => {
+    // 如果没有传递目标信息，尝试从在线用户获取
+    if (!data.targetInfo && data.type === 'single') {
+      const onlineUsers = networkService?.getOnlineUsers() ?? []
+      const targetUser = onlineUsers.find(u => u.userId === data.targetId)
+      if (targetUser) {
+        data.targetInfo = {
+          nickname: targetUser.nickname,
+          avatar: targetUser.avatar,
+          status: targetUser.status
+        }
+      }
+    }
     return databaseService?.createConversation(data) ?? null
   })
 
@@ -188,7 +200,8 @@ function registerIpcHandlers(): void {
 
   // 发送消息
   ipcMain.handle('message:send', async (_, data) => {
-    return networkService?.sendMessage(data) ?? false
+    const result = await networkService?.sendMessage(data)
+    return result ?? { success: false }
   })
 
   // 撤回消息

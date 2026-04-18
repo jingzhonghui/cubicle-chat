@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMessageStore } from '@store/messageStore'
+import { useUserStore } from '@store/userStore'
 import UsersPage from './UsersPage'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
@@ -134,14 +135,35 @@ function SessionItem({
 
 function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: SidebarProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
-  const { conversations } = useMessageStore()
+  const { conversations, createConversation } = useMessageStore()
+  const { onlineUsers } = useUserStore()
+
+  // 从用户页面选择用户时处理会话创建
+  const handleUserSelect = async (userId: string) => {
+    // 检查是否已有会话
+    const existingConv = conversations.find((c) => c.targetId === userId)
+    if (existingConv) {
+      onSelectConversation(existingConv.conversationId)
+    } else {
+      // 创建新会话
+      const user = onlineUsers.find(u => u.userId === userId)
+      const conv = await createConversation(userId, 'single', undefined, user ? {
+        nickname: user.nickname,
+        avatar: user.avatar,
+        status: user.status
+      } : undefined)
+      if (conv) {
+        onSelectConversation(conv.conversationId)
+      }
+    }
+  }
 
   // 根据当前页面显示不同内容
   // 用户页面显示在线用户列表
   if (currentPage === 'users') {
     return (
       <UsersPage
-        onSelectUser={(userId) => onSelectConversation(userId)}
+        onSelectUser={handleUserSelect}
       />
     )
   }

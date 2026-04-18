@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useUserStore } from './userStore'
 
 export interface Message {
   messageId: string
@@ -42,8 +43,9 @@ interface MessageStore {
   sendMessage: (conversationId: string, content: string, contentType?: 'text' | 'emoji') => Promise<void>
   recallMessage: (messageId: string, conversationId: string) => Promise<void>
   updateMessageStatus: (messageId: string, status: Message['status']) => void
+  updateMessageId: (oldId: string, newId: string) => void
   setCurrentConversation: (conversationId: string | null) => void
-  createConversation: (targetId: string, type: 'single' | 'group', groupName?: string) => Promise<Conversation | null>
+  createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
   markAsRead: (conversationId: string) => void
 }
 
@@ -90,13 +92,16 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
   sendMessage: async (conversationId: string, content: string, contentType: 'text' | 'emoji' = 'text') => {
     const conversation = get().conversations.find((c) => c.conversationId === conversationId)
-    if (!conversation) return
+    const userInfo = useUserStore.getState().userInfo
+    if (!conversation || !userInfo) return
 
     // 创建本地消息（发送中状态）
+    const localMessageId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const tempMessage: Message = {
-      messageId: `temp-${Date.now()}`,
+      messageId: localMessageId,
       conversationId,
-      senderId: '', // 稍后填充
+      senderId: userInfo.userId, // 使用当前用户的 userId
+      senderName: userInfo.nickname,
       contentType,
       content,
       status: 'sending',
@@ -109,14 +114,19 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
     try {
       // 发送到主进程
-      await window.electronAPI.invoke<boolean>('message:send', {
+      const result = await window.electronAPI.invoke<{ success: boolean; messageId?: string }>('message:send', {
         to: conversation.targetId,
         content,
         contentType
       })
 
-      // 更新消息状态
-      get().updateMessageStatus(tempMessage.messageId, 'sent')
+      if (result?.success && result.messageId) {
+        // 使用服务器返回的真实消息 ID 更新本地消息
+        get().updateMessageId(localMessageId, result.messageId)
+        get().updateMessageStatus(result.messageId, 'sent')
+      } else {
+        get().updateMessageStatus(localMessageId, 'failed')
+      }
 
       // 更新会话的最后消息
       set((state) => ({
@@ -128,7 +138,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       }))
     } catch (error) {
       console.error('发送消息失败:', error)
-      get().updateMessageStatus(tempMessage.messageId, 'failed')
+      get().updateMessageStatus(localMessageId, 'failed')
     }
   },
 
@@ -148,6 +158,14 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }))
   },
 
+  updateMessageId: (oldId: string, newId: string) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.messageId === oldId ? { ...m, messageId: newId } : m
+      )
+    }))
+  },
+
   setCurrentConversation: (conversationId: string | null) => {
     set({ currentConversationId: conversationId })
     if (conversationId) {
@@ -155,12 +173,19 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }
   },
 
-  createConversation: async (targetId: string, type: 'single' | 'group', groupName?: string) => {
+  createConversation: async (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => {
     try {
+      // 先检查是否已存在
+      const existing = get().conversations.find(c => c.targetId === targetId && c.type === type)
+      if (existing) {
+        return existing
+      }
+      
       const conversation = await window.electronAPI.invoke<Conversation | null>('conversation:create', {
         type,
         targetId,
-        groupName
+        groupName,
+        targetInfo
       })
       if (conversation) {
         set((state) => ({
@@ -187,6 +212,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 if (typeof window !== 'undefined' && window.electronAPI) {
   window.electronAPI.on('msg:receive', (data: {
     messageId: string
+    conversationId: string
     senderId: string
     senderName: string
     contentType: string
@@ -195,7 +221,7 @@ if (typeof window !== 'undefined' && window.electronAPI) {
   }) => {
     const message: Message = {
       messageId: data.messageId,
-      conversationId: data.senderId,
+      conversationId: data.conversationId,
       senderId: data.senderId,
       senderName: data.senderName,
       contentType: data.contentType as Message['contentType'],
@@ -206,7 +232,13 @@ if (typeof window !== 'undefined' && window.electronAPI) {
       deliveredAt: Date.now()
     }
 
+    const state = useMessageStore.getState()
     useMessageStore.getState().addMessage(message)
+    
+    // 如果当前正在这个会话中，刷新消息
+    if (state.currentConversationId === data.conversationId) {
+      useMessageStore.getState().loadMessages(data.conversationId)
+    }
   })
 
   window.electronAPI.on('msg:ack', (data: { messageId: string }) => {

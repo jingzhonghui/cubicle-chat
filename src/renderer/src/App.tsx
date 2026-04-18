@@ -12,7 +12,7 @@ function App(): JSX.Element {
   const [currentPage, setCurrentPage] = useState<PageType>('chat')
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const { loadUserInfo, loadOnlineUsers } = useUserStore()
-  const { loadConversations } = useMessageStore()
+  const { loadConversations, setCurrentConversation } = useMessageStore()
 
   useEffect(() => {
     // 初始化加载数据
@@ -27,6 +27,7 @@ function App(): JSX.Element {
 
   const handleSelectConversation = (conversationId: string) => {
     setSelectedConversationId(conversationId)
+    setCurrentConversation(conversationId)
     if (currentPage !== 'chat') {
       setCurrentPage('chat')
     }

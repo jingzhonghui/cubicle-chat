@@ -313,8 +313,84 @@ export class DatabaseService {
     })
   }
 
-  createConversation(data: { type: 'single' | 'group'; targetId: string; groupName?: string }): Conversation | null {
+  getConversationByTarget(targetId: string, type: 'single' | 'group'): Conversation | null {
     if (!this.db) return null
+
+    const stmt = this.db.prepare('SELECT * FROM conversations WHERE target_id = ? AND type = ?')
+    const row = stmt.get(targetId, type) as {
+      conversation_id: string
+      type: string
+      target_id: string
+      group_name: string
+      is_pinned: number
+      is_muted: number
+      unread_count: number
+      last_message_id: string
+      last_message_at: number
+    } | undefined
+
+    if (!row) return null
+
+    // 获取目标用户信息
+    const targetStmt = this.db.prepare('SELECT * FROM users WHERE user_id = ?')
+    const target = targetStmt.get(row.target_id) as { nickname: string; avatar: string; status: string } | undefined
+
+    // 获取最后一条消息
+    let lastMessage = ''
+    if (row.last_message_id) {
+      const msgStmt = this.db.prepare('SELECT content FROM messages WHERE message_id = ?')
+      const msg = msgStmt.get(row.last_message_id) as { content: string } | undefined
+      lastMessage = msg?.content || ''
+    }
+
+    return {
+      conversationId: row.conversation_id,
+      type: row.type as 'single' | 'group',
+      targetId: row.target_id,
+      targetName: row.type === 'group' ? row.group_name || '群聊' : target?.nickname || '未知用户',
+      targetAvatar: target?.avatar,
+      targetStatus: target?.status,
+      lastMessage,
+      lastMessageAt: row.last_message_at,
+      unreadCount: row.unread_count,
+      isPinned: Boolean(row.is_pinned),
+      isMuted: Boolean(row.is_muted)
+    }
+  }
+
+  createConversation(data: { 
+    type: 'single' | 'group'; 
+    targetId: string; 
+    groupName?: string;
+    targetInfo?: { nickname: string; avatar?: string; status?: string }
+  }): Conversation | null {
+    if (!this.db) return null
+
+    // 检查会话是否已存在
+    const existingConv = this.db.prepare('SELECT * FROM conversations WHERE target_id = ? AND type = ?').get(data.targetId, data.type) as {
+      conversation_id: string;
+      type: string;
+      target_id: string;
+      group_name: string;
+      is_pinned: number;
+      is_muted: number;
+      unread_count: number;
+    } | undefined
+
+    if (existingConv) {
+      // 返回已存在的会话
+      return {
+        conversationId: existingConv.conversation_id,
+        type: existingConv.type as 'single' | 'group',
+        targetId: existingConv.target_id,
+        targetName: data.targetInfo?.nickname || data.groupName || '未知用户',
+        targetAvatar: data.targetInfo?.avatar,
+        targetStatus: data.targetInfo?.status,
+        unreadCount: existingConv.unread_count,
+        isPinned: Boolean(existingConv.is_pinned),
+        isMuted: Boolean(existingConv.is_muted)
+      }
+    }
 
     const conversationId = this.generateUUID()
     const now = Date.now()
@@ -338,7 +414,9 @@ export class DatabaseService {
       conversationId,
       type: data.type,
       targetId: data.targetId,
-      targetName: data.groupName || '新会话',
+      targetName: data.targetInfo?.nickname || data.groupName || '新会话',
+      targetAvatar: data.targetInfo?.avatar,
+      targetStatus: data.targetInfo?.status,
       unreadCount: 0,
       isPinned: false,
       isMuted: false

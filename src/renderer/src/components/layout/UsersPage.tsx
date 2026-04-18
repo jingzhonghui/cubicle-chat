@@ -112,7 +112,7 @@ function UserItem({
 
 function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
   const { onlineUsers } = useUserStore()
-  const { conversations } = useMessageStore()
+  const { conversations, createConversation } = useMessageStore()
   const [searchQuery, setSearchQuery] = useState('')
 
   // 过滤用户
@@ -131,7 +131,15 @@ function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
       onSelectUser(existingConv.conversationId)
     } else {
       // 创建新会话
-      onSelectUser(userId)
+      const user = onlineUsers.find(u => u.userId === userId)
+      const conv = await createConversation(userId, 'single', undefined, user ? {
+        nickname: user.nickname,
+        avatar: user.avatar,
+        status: user.status
+      } : undefined)
+      if (conv) {
+        onSelectUser(conv.conversationId)
+      }
     }
   }
 

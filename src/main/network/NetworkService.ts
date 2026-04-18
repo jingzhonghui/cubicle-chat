@@ -229,10 +229,30 @@ export class NetworkService {
       return
     }
 
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(packet.from.userId, 'single')
+    if (!conversation) {
+      // 会话不存在，创建新会话
+      conversation = this.databaseService.createConversation({
+        type: 'single',
+        targetId: packet.from.userId,
+        targetInfo: {
+          nickname: packet.from.nickname,
+          avatar: packet.from.avatar,
+          status: packet.from.status
+        }
+      })
+    }
+
+    if (!conversation) {
+      log.error('无法创建会话保存消息')
+      return
+    }
+
     // 保存消息到数据库
     this.databaseService.saveMessage({
       messageId: packet.msgId,
-      conversationId: payload.to,
+      conversationId: conversation.conversationId,
       senderId: packet.from.userId,
       contentType: payload.contentType as 'text' | 'emoji' | 'image' | 'file',
       content: payload.content,
@@ -245,6 +265,7 @@ export class NetworkService {
     // 通知渲染进程
     this.mainWindow.webContents.send('msg:receive', {
       messageId: packet.msgId,
+      conversationId: conversation.conversationId,
       senderId: packet.from.userId,
       senderName: packet.from.nickname,
       contentType: payload.contentType,
@@ -327,6 +348,15 @@ export class NetworkService {
       payload
     }
 
+    this.sendPacketDirect(packet)
+  }
+
+  private sendPacketDirect(packet: UdpPacket): void {
+    if (!this.udpSocket || !this.broadcastAddress) {
+      log.warn('UDP socket 未就绪或广播地址未设置')
+      return
+    }
+
     const buffer = this.encodePacket(packet)
 
     // 发送到广播地址
@@ -403,12 +433,15 @@ export class NetworkService {
     content: string
     contentType: string
     replyTo?: string
-  }): Promise<boolean> {
+  }): Promise<{ success: boolean; messageId?: string }> {
     const targetUser = this.onlineUsers.get(data.to)
     if (!targetUser) {
       log.warn('用户不在线:', data.to)
-      return false
+      return { success: false }
     }
+
+    // 生成消息 ID
+    const messageId = uuidv4()
 
     const payload = {
       to: data.to,
@@ -417,8 +450,26 @@ export class NetworkService {
       replyTo: data.replyTo
     }
 
-    this.sendPacket('TEXT', payload)
-    return true
+    // 使用自定义 msgId
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'TEXT',
+      msgId: messageId,
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: TCP_PORT,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload
+    }
+
+    this.sendPacketDirect(packet)
+    return { success: true, messageId }
   }
 
   async withdrawMessage(messageId: string, conversationId: string): Promise<boolean> {
