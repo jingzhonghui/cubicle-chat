@@ -153,7 +153,11 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
         status: user.status
       } : undefined)
       if (conv) {
-        onSelectConversation(conv.conversationId)
+        // 再次检查（可能 createConversation 内部已经处理了）
+        const updatedConv = useMessageStore.getState().conversations.find((c) => c.conversationId === conv.conversationId)
+        if (updatedConv) {
+          onSelectConversation(updatedConv.conversationId)
+        }
       }
     }
   }

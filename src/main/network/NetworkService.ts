@@ -231,6 +231,7 @@ export class NetworkService {
 
     // 查找或创建会话
     let conversation = this.databaseService.getConversationByTarget(packet.from.userId, 'single')
+    let isNewConversation = false
     if (!conversation) {
       // 会话不存在，创建新会话
       conversation = this.databaseService.createConversation({
@@ -242,6 +243,15 @@ export class NetworkService {
           status: packet.from.status
         }
       })
+      isNewConversation = !!conversation
+    } else {
+      // 会话已存在，更新会话的目标信息（使用最新收到的信息）
+      conversation = {
+        ...conversation,
+        targetName: packet.from.nickname,
+        targetAvatar: packet.from.avatar,
+        targetStatus: packet.from.status
+      }
     }
 
     if (!conversation) {
@@ -263,15 +273,23 @@ export class NetworkService {
     this.sendPacket('TEXT_ACK', { ackMsgId: packet.msgId })
 
     // 通知渲染进程
-    this.mainWindow.webContents.send('msg:receive', {
-      messageId: packet.msgId,
-      conversationId: conversation.conversationId,
-      senderId: packet.from.userId,
-      senderName: packet.from.nickname,
-      contentType: payload.contentType,
-      content: payload.content,
-      sentAt: packet.timestamp
-    })
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:receive', {
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        senderName: packet.from.nickname,
+        contentType: payload.contentType,
+        content: payload.content,
+        sentAt: packet.timestamp,
+        isNewConversation
+      })
+
+      // 如果是新创建的会话，通知渲染进程更新会话列表
+      if (isNewConversation && conversation) {
+        this.mainWindow.webContents.send('conversation:new', conversation)
+      }
+    }
   }
 
   private handleTextAck(packet: UdpPacket): void {

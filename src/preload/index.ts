@@ -31,7 +31,8 @@ const receiveChannels = [
   'msg:withdrawn',
   'file:progress',
   'file:complete',
-  'typing:receive'
+  'typing:receive',
+  'conversation:new'
 ]
 
 // 类型定义

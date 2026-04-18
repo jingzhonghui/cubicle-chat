@@ -112,7 +112,6 @@ function UserItem({
 
 function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
   const { onlineUsers } = useUserStore()
-  const { conversations, createConversation } = useMessageStore()
   const [searchQuery, setSearchQuery] = useState('')
 
   // 过滤用户
@@ -124,23 +123,9 @@ function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
   const onlineUsersList = filteredUsers.filter((u) => u.status === 'online')
   const offlineUsersList = filteredUsers.filter((u) => u.status !== 'online')
 
-  const handleMessageClick = async (userId: string) => {
-    // 检查是否已有会话
-    const existingConv = conversations.find((c) => c.targetId === userId)
-    if (existingConv) {
-      onSelectUser(existingConv.conversationId)
-    } else {
-      // 创建新会话
-      const user = onlineUsers.find(u => u.userId === userId)
-      const conv = await createConversation(userId, 'single', undefined, user ? {
-        nickname: user.nickname,
-        avatar: user.avatar,
-        status: user.status
-      } : undefined)
-      if (conv) {
-        onSelectUser(conv.conversationId)
-      }
-    }
+  // 直接将 userId 传给 Sidebar 的 handleUserSelect 处理
+  const handleMessageClick = (userId: string) => {
+    onSelectUser(userId)
   }
 
   return (

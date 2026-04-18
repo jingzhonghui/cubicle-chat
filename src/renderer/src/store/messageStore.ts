@@ -193,7 +193,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
   createConversation: async (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => {
     try {
-      // 先检查是否已存在
+      // 先检查本地是否已存在
       const existing = get().conversations.find(c => c.targetId === targetId && c.type === type)
       if (existing) {
         return existing
@@ -205,10 +205,15 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
         groupName,
         targetInfo
       })
+      
       if (conversation) {
-        set((state) => ({
-          conversations: [conversation, ...state.conversations]
-        }))
+        // 再次检查是否已存在（可能 loadConversations 已经加载过了）
+        const stillExists = get().conversations.find(c => c.conversationId === conversation.conversationId)
+        if (!stillExists) {
+          set((state) => ({
+            conversations: [conversation, ...state.conversations]
+          }))
+        }
       }
       return conversation
     } catch (error) {
@@ -236,6 +241,7 @@ if (typeof window !== 'undefined' && window.electronAPI) {
     contentType: string
     content: string
     sentAt: number
+    isNewConversation?: boolean
   }) => {
     const message: Message = {
       messageId: data.messageId,
@@ -252,6 +258,25 @@ if (typeof window !== 'undefined' && window.electronAPI) {
 
     const state = useMessageStore.getState()
     useMessageStore.getState().addMessage(message)
+    
+    // 如果是新会话且当前不在这个会话中，添加到会话列表
+    if (data.isNewConversation) {
+      const exists = state.conversations.some(c => c.conversationId === data.conversationId)
+      if (!exists) {
+        const newConversation: Conversation = {
+          conversationId: data.conversationId,
+          type: 'single',
+          targetId: data.senderId,
+          targetName: data.senderName,
+          unreadCount: 0,
+          isPinned: false,
+          isMuted: false
+        }
+        set((state) => ({
+          conversations: [newConversation, ...state.conversations]
+        }))
+      }
+    }
     
     // 如果当前正在这个会话中，刷新消息
     if (state.currentConversationId === data.conversationId) {
