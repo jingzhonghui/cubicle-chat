@@ -255,6 +255,10 @@ function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('file:get', async (_, data: { fileId: string }) => {
+    return databaseService?.getFile(data.fileId) ?? null
+  })
+
   ipcMain.handle('file:getList', async (_, filter?: { direction?: 'send' | 'receive'; status?: string }) => {
     return databaseService?.getFileList(filter as { direction?: 'send' | 'receive'; status?: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected' }) ?? []
   })

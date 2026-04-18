@@ -22,6 +22,7 @@ interface FileTransfer {
   speed: number
   status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
   isImage: boolean
+  direction?: 'send' | 'receive'
 }
 
 interface MessageBubbleProps {
@@ -31,6 +32,33 @@ interface MessageBubbleProps {
 
 function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   const [fileTransfer, setFileTransfer] = useState<FileTransfer | null>(null)
+
+  // 加载文件状态（组件挂载时从数据库获取）
+  useEffect(() => {
+    if (message.fileId && (message.contentType === 'file' || message.contentType === 'image')) {
+      // 先从数据库加载文件状态
+      window.electronAPI.invoke<FileTransfer | null>('file:get', { fileId: message.fileId })
+        .then((fileData) => {
+          if (fileData) {
+            // 转换为 FileTransfer 格式
+            const transfer: FileTransfer = {
+              transferId: fileData.fileId,
+              fileName: fileData.fileName,
+              fileSize: fileData.fileSize,
+              direction: fileData.direction,
+              status: fileData.status,
+              progress: fileData.status === 'completed' ? 100 : 0,
+              speed: 0,
+              isImage: fileData.isImage
+            }
+            setFileTransfer(transfer)
+          }
+        })
+        .catch((error) => {
+          console.error('加载文件状态失败:', error)
+        })
+    }
+  }, [message.fileId, message.contentType])
 
   // 监听文件传输进度
   useEffect(() => {

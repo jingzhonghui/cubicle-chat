@@ -23,6 +23,7 @@ const invokeChannels = [
   'file:accept',
   'file:reject',
   'file:select',
+  'file:get',
   'file:getList',
   'file:open',
   'file:openFolder'
