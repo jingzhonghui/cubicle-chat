@@ -123,11 +123,11 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   // 撤回消息
   if (message.isRecalled || message.contentType === 'recall') {
     return (
-      <div className="msg-row flex gap-2 my-1 items-end">
+      <div className="msg-row flex gap-2 my-1 items-end max-w-[50%] self-start">
         <div className="msg-avatar w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold text-white bg-[var(--accent)]">
           {message.senderName?.charAt(0) || '?'}
         </div>
-        <div className="flex flex-col gap-0.5 max-w-[65%]">
+        <div className="flex flex-col gap-0.5 min-w-0">
           {!isSelf && (
             <div className="text-[11px] text-[var(--text-secondary)] mb-0.5">
               {message.senderName}
@@ -300,7 +300,7 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   const avatarBg = isSelf ? 'var(--accent)' : colors[colorIndex]
 
   return (
-    <div className={`msg-row flex gap-2 my-1 items-end msg-animate ${isSelf ? 'flex-row-reverse' : ''}`}>
+    <div className={`msg-row flex gap-2 my-1 items-end msg-animate max-w-[50%] ${isSelf ? 'flex-row-reverse self-end' : 'self-start'}`}>
       {/* 头像 */}
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold text-white flex-shrink-0"
@@ -310,7 +310,7 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
       </div>
 
       {/* 内容 */}
-      <div className={`flex flex-col gap-0.5 ${isSelf ? 'items-end' : ''}`}>
+      <div className={`flex flex-col gap-0.5 min-w-0 ${isSelf ? 'items-end' : ''}`}>
         {/* 发送者名称 */}
         {!isSelf && (
           <div className="text-[11px] text-[var(--text-secondary)] mb-0.5">

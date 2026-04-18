@@ -144,7 +144,8 @@ body {
 
 /* 消息气泡样式 */
 .bubble {
-  max-width: 70%;
+  max-width: 100%;
+  width: fit-content;
   padding: 8px 12px;
   border-radius: 12px;
   font-size: 14px;
