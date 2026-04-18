@@ -1,4 +1,5 @@
 import { useUserStore } from '@store/userStore'
+import { useMessageStore } from '@store/messageStore'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -8,7 +9,7 @@ interface NavBarProps {
 }
 
 // 导航图标组件
-function NavIcon({ type, active, badge }: { type: PageType; active: boolean; badge?: number }): JSX.Element {
+function NavIcon({ type, badge }: { type: PageType; badge?: number }): JSX.Element {
   const icons: Record<PageType, { icon: string; label: string }> = {
     chat: { icon: '💬', label: '会话列表' },
     users: { icon: '👥', label: '联系人' },
@@ -32,11 +33,15 @@ function NavIcon({ type, active, badge }: { type: PageType; active: boolean; bad
 
 function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
   const { userInfo, onlineUsers } = useUserStore()
+  const { conversations } = useMessageStore()
 
   const navItems: PageType[] = ['chat', 'users', 'files', 'settings']
 
   // 获取在线用户数量（排除自己）
   const onlineCount = onlineUsers.length
+
+  // 计算所有会话的总未读消息数
+  const totalUnreadCount = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0)
 
   // 获取昵称首字
   const avatarChar = userInfo?.nickname?.charAt(0) || '?'
@@ -63,7 +68,7 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
           onClick={() => onNavigate(page)}
           className={`
             w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer
-            transition-all duration-150 border-none bg-transparent
+            transition-all duration-150 border-none bg-transparent relative
             ${currentPage === page
               ? 'bg-[var(--accent-light)] text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)]'
@@ -73,9 +78,12 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
         >
           <NavIcon
             type={page}
-            active={currentPage === page}
-            badge={page === 'users' && onlineCount > 0 ? onlineCount : undefined}
+            badge={page === 'chat' && totalUnreadCount > 0 ? totalUnreadCount : undefined}
           />
+          {/* 选中状态指示器 */}
+          {currentPage === page && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[var(--accent)] rounded-r-full" />
+          )}
         </button>
       ))}
     </div>

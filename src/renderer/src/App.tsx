@@ -9,10 +9,10 @@ import { useMessageStore, initMessageStoreListeners } from '@store/messageStore'
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
 function App(): JSX.Element {
-  const [currentPage, setCurrentPage] = useState<PageType>('chat')
+  const [currentPage, setCurrentPageState] = useState<PageType>('chat')
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const { loadUserInfo, loadOnlineUsers } = useUserStore()
-  const { loadConversations, setCurrentConversation } = useMessageStore()
+  const { loadConversations, setCurrentConversation, setCurrentPage } = useMessageStore()
 
   useEffect(() => {
     // 初始化事件监听
@@ -31,6 +31,7 @@ function App(): JSX.Element {
   }, [loadUserInfo, loadOnlineUsers, loadConversations])
 
   const handleNavigate = (page: PageType) => {
+    setCurrentPageState(page)
     setCurrentPage(page)
   }
 
@@ -38,6 +39,7 @@ function App(): JSX.Element {
     setSelectedConversationId(conversationId)
     setCurrentConversation(conversationId)
     if (currentPage !== 'chat') {
+      setCurrentPageState('chat')
       setCurrentPage('chat')
     }
   }

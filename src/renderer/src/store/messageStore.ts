@@ -34,6 +34,7 @@ interface MessageStore {
   conversations: Conversation[]
   messages: Message[]
   currentConversationId: string | null
+  currentPage: 'chat' | 'users' | 'files' | 'settings'
   isLoading: boolean
 
   // Actions
@@ -45,6 +46,7 @@ interface MessageStore {
   updateMessageStatus: (messageId: string, status: Message['status']) => void
   updateMessageId: (oldId: string, newId: string) => void
   setCurrentConversation: (conversationId: string | null) => void
+  setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => void
   createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
   markAsRead: (conversationId: string) => void
 }
@@ -53,6 +55,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   conversations: [],
   messages: [],
   currentConversationId: null,
+  currentPage: 'chat',
   isLoading: false,
 
   loadConversations: async () => {
@@ -188,7 +191,13 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     set({ currentConversationId: conversationId })
     if (conversationId) {
       get().loadMessages(conversationId)
+      // 标记为已读
+      get().markAsRead(conversationId)
     }
+  },
+
+  setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => {
+    set({ currentPage: page })
   },
 
   createConversation: async (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => {
@@ -266,10 +275,32 @@ export function initMessageStoreListeners(): () => void {
       deliveredAt: Date.now()
     }
 
+    // 获取最新状态
     const state = useMessageStore.getState()
+    const isCurrentConversation = state.currentConversationId === data.conversationId
+    const isChatPage = state.currentPage === 'chat'
+
+    console.log(`[MessageStore] 当前页面: ${state.currentPage}, 当前会话: ${state.currentConversationId}, 消息会话: ${data.conversationId}`)
+
+    // 如果当前正在查看这个会话且处于聊天页面，直接添加消息并标记已读，不增加未读数
+    if (isCurrentConversation && isChatPage) {
+      console.log('[MessageStore] 当前正在查看该会话，直接添加消息并标记已读')
+      useMessageStore.getState().addMessage(message)
+      useMessageStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.conversationId === data.conversationId
+            ? { ...c, lastMessage: data.content, lastMessageAt: data.sentAt, unreadCount: 0 }
+            : c
+        )
+      }))
+      return
+    }
+
+    // 否则添加消息并增加未读数
+    console.log('[MessageStore] 不在当前会话，增加未读数')
     useMessageStore.getState().addMessage(message)
 
-    // 如果是新会话且当前不在这个会话中，添加到会话列表
+    // 如果是新会话，添加到会话列表
     if (data.isNewConversation) {
       const exists = state.conversations.some(c => c.conversationId === data.conversationId)
       if (!exists) {
@@ -289,7 +320,7 @@ export function initMessageStoreListeners(): () => void {
         }))
       }
     } else {
-      // 更新现有会话的最后消息
+      // 更新现有会话的最后消息和未读数
       useMessageStore.setState((state) => ({
         conversations: state.conversations.map((c) =>
           c.conversationId === data.conversationId
@@ -297,12 +328,6 @@ export function initMessageStoreListeners(): () => void {
             : c
         )
       }))
-    }
-
-    // 如果当前正在这个会话中，刷新消息并标记已读
-    if (state.currentConversationId === data.conversationId) {
-      useMessageStore.getState().loadMessages(data.conversationId)
-      useMessageStore.getState().markAsRead(data.conversationId)
     }
   })
 
