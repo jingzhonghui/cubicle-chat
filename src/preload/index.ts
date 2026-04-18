@@ -14,6 +14,7 @@ const invokeChannels = [
   'user:getOnlineUsers',
   'conversation:getList',
   'conversation:create',
+  'conversation:delete',
   'message:getHistory',
   'message:send',
   'message:withdraw',

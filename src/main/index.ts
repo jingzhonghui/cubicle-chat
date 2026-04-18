@@ -219,6 +219,10 @@ function registerIpcHandlers(): void {
     return databaseService?.createConversation(data) ?? null
   })
 
+  ipcMain.handle('conversation:delete', (_, data) => {
+    return databaseService?.deleteConversation(data.conversationId) ?? false
+  })
+
   // 获取消息历史
   ipcMain.handle('message:getHistory', (_, data) => {
     return databaseService?.getMessageHistory(data.conversationId, data.limit, data.before) ?? []

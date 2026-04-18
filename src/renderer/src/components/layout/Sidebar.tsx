@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMessageStore } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import UsersPage from './UsersPage'
@@ -56,11 +56,69 @@ function Avatar({
   )
 }
 
+// 右键菜单组件
+function ContextMenu({
+  x,
+  y,
+  onClose,
+  onDelete,
+  onClearAll
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onDelete: () => void
+  onClearAll: () => void
+}): JSX.Element {
+  useEffect(() => {
+    const handleClick = () => onClose()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('click', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('click', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed z-50 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[140px]"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+        onClick={() => {
+          onClearAll()
+          onClose()
+        }}
+      >
+        <span>🧹</span>
+        <span>清空列表</span>
+      </button>
+      <button
+        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+        onClick={() => {
+          onDelete()
+          onClose()
+        }}
+      >
+        <span>🗑️</span>
+        <span>删除会话</span>
+      </button>
+    </div>
+  )
+}
+
 // 会话项组件
 function SessionItem({
   conversation,
   isActive,
-  onClick
+  onClick,
+  onContextMenu
 }: {
   conversation: {
     conversationId: string
@@ -74,6 +132,7 @@ function SessionItem({
   }
   isActive: boolean
   onClick: () => void
+  onContextMenu: (e: React.MouseEvent) => void
 }): JSX.Element {
   const formatTime = (timestamp?: number): string => {
     if (!timestamp) return ''
@@ -97,6 +156,7 @@ function SessionItem({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`
         flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors
         ${isActive
@@ -135,7 +195,8 @@ function SessionItem({
 
 function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: SidebarProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
-  const { conversations, createConversation } = useMessageStore()
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conversationId: string } | null>(null)
+  const { conversations, createConversation, deleteConversation } = useMessageStore()
   const { onlineUsers } = useUserStore()
 
   // 从用户页面选择用户时处理会话创建
@@ -159,6 +220,46 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
           onSelectConversation(updatedConv.conversationId)
         }
       }
+    }
+  }
+
+  // 右键菜单
+  const handleContextMenu = (e: React.MouseEvent, conversationId?: string) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, conversationId })
+  }
+
+  // 右键点击空白区域
+  const handleListContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, conversationId: undefined })
+  }
+
+  // 删除会话
+  const handleDeleteConversation = async (conversationId?: string) => {
+    if (!conversationId) return
+
+    const conv = conversations.find(c => c.conversationId === conversationId)
+    if (!conv) return
+
+    if (confirm('删除会话会清空聊天记录')) {
+      await deleteConversation(conversationId)
+      // 如果删除的是当前选中的会话，清除选中状态
+      if (selectedConversationId === conversationId) {
+        onSelectConversation('')
+      }
+    }
+  }
+
+  // 清空列表
+  const handleClearAll = async () => {
+    if (confirm('清空列表会删除所有的聊天记录')) {
+      // 删除所有会话
+      for (const conv of conversations) {
+        await deleteConversation(conv.conversationId)
+      }
+      // 清除选中状态
+      onSelectConversation('')
     }
   }
 
@@ -201,7 +302,7 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
       </div>
 
       {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-1" onContextMenu={handleListContextMenu}>
         {filteredConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-[var(--text-secondary)]">
             <span className="text-2xl opacity-40">💬</span>
@@ -216,8 +317,20 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
               conversation={conv}
               isActive={selectedConversationId === conv.conversationId}
               onClick={() => onSelectConversation(conv.conversationId)}
+              onContextMenu={(e) => handleContextMenu(e, conv.conversationId)}
             />
           ))
+        )}
+
+        {/* 右键菜单 */}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            onDelete={() => handleDeleteConversation(contextMenu.conversationId)}
+            onClearAll={handleClearAll}
+          />
         )}
       </div>
     </div>

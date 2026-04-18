@@ -776,6 +776,25 @@ export class DatabaseService {
     stmt.run(fileId)
   }
 
+  deleteConversation(conversationId: string): boolean {
+    if (!this.db) return false
+
+    try {
+      // 删除消息
+      const deleteMessages = this.db.prepare('DELETE FROM messages WHERE conversation_id = ?')
+      deleteMessages.run(conversationId)
+
+      // 删除会话
+      const deleteConv = this.db.prepare('DELETE FROM conversations WHERE conversation_id = ?')
+      deleteConv.run(conversationId)
+
+      return true
+    } catch (error) {
+      log.error('删除会话失败:', error)
+      return false
+    }
+  }
+
   getDownloadPath(): string {
     const downloadPath = app.getPath('downloads')
     const cubicleChatPath = join(downloadPath, 'CubicleChat')

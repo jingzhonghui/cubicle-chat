@@ -50,6 +50,7 @@ interface MessageStore {
   setCurrentConversation: (conversationId: string | null) => void
   setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => void
   createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
+  deleteConversation: (conversationId: string) => Promise<void>
   markAsRead: (conversationId: string) => void
 }
 
@@ -292,6 +293,22 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
         c.conversationId === conversationId ? { ...c, unreadCount: 0 } : c
       )
     }))
+  },
+
+  deleteConversation: async (conversationId: string) => {
+    try {
+      await window.electronAPI.invoke('conversation:delete', { conversationId })
+      // 从列表中移除
+      set((state) => ({
+        conversations: state.conversations.filter((c) => c.conversationId !== conversationId)
+      }))
+      // 清除对应消息
+      set((state) => ({
+        messages: state.messages.filter((m) => m.conversationId !== conversationId)
+      }))
+    } catch (error) {
+      console.error('删除会话失败:', error)
+    }
   }
 }))
 
