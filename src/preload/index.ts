@@ -25,6 +25,7 @@ const receiveChannels = [
   'user:online',
   'user:offline',
   'user:update',
+  'window:maximized-change',
   'msg:receive',
   'msg:ack',
   'msg:withdrawn',
