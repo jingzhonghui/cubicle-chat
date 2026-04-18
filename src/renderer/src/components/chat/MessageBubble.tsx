@@ -225,8 +225,18 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
 
     // 图片消息
     if (isImage) {
+      const handleDoubleClick = () => {
+        if (imageUrl) {
+          window.dispatchEvent(new CustomEvent('image:preview', {
+            detail: { src: imageUrl, fileName: message.content }
+          }))
+        }
+      }
       return (
-        <div className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]">
+        <div
+          className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]"
+          onDoubleClick={handleDoubleClick}
+        >
           {imageUrl ? (
             <img src={imageUrl} alt="图片" className="w-full block max-h-[240px] object-cover" />
           ) : (
