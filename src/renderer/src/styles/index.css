@@ -142,6 +142,67 @@ body {
   animation: fadeInUp 0.15s ease-out;
 }
 
+/* 消息气泡样式 */
+.bubble {
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.bubble.self {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.other {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+/* 文件气泡样式 */
+.file-bubble {
+  max-width: 280px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.file-bubble.self {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-bottom-right-radius: 4px;
+}
+
+.file-bubble.self .text-\[var\(--text-secondary\)\] {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.file-bubble.self .bg-\[var\(--bg-base\)\] {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 图片气泡样式 */
+.img-bubble {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.img-bubble img {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  object-fit: cover;
+}
+
 /* 工具类 */
 .truncate {
   overflow: hidden;

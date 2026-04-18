@@ -1,8 +1,12 @@
 import dgram from 'dgram'
 import os from 'os'
+import path from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
-import { DatabaseService } from '../database/DatabaseService'
+import { DatabaseService, FileRecord } from '../database/DatabaseService'
+import { TcpTransferService, FileTransfer, generateTransferId } from './TcpTransferService'
 import { app } from 'electron'
 
 // 包类型
@@ -66,6 +70,7 @@ export class NetworkService {
   private udpSocket: dgram.Socket | null = null
   private mainWindow: BrowserWindow
   private databaseService: DatabaseService
+  private tcpTransferService: TcpTransferService | null = null
   private onlineUsers: Map<string, OnlineUser> = new Map()
   private heartbeatTimer: NodeJS.Timeout | null = null
   private cleanupTimer: NodeJS.Timeout | null = null
@@ -74,6 +79,18 @@ export class NetworkService {
   private selfStatus: UserStatus = 'online'
   private broadcastAddress: string = ''
   private localIP: string = ''
+  private tcpPort: number = TCP_PORT
+  // 待接收的文件请求
+  private pendingFileRequests: Map<string, {
+    from: OnlineUser
+    fileName: string
+    fileSize: number
+    fileMd5: string
+    mimeType: string
+    isImage: boolean
+    thumbnailData?: string
+    timestamp: number
+  }> = new Map()
 
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService) {
     this.mainWindow = mainWindow
@@ -90,6 +107,7 @@ export class NetworkService {
     return new Promise((resolve, reject) => {
       try {
         this.createUdpSocket()
+        this.initTcpTransfer()
         this.startHeartbeat()
         this.startCleanup()
         // broadcastOnline 会在 listening 事件后调用
@@ -99,6 +117,51 @@ export class NetworkService {
         reject(error)
       }
     })
+  }
+
+  private async initTcpTransfer(): Promise<void> {
+    this.tcpTransferService = new TcpTransferService(this.mainWindow)
+
+    // 设置回调
+    this.tcpTransferService.setCallbacks(
+      (transfer) => {
+        // 进度回调
+        log.debug(`文件传输进度: ${transfer.fileName} - ${transfer.progress}%`)
+      },
+      (transfer, success, error) => {
+        // 完成回调
+        if (success) {
+          log.info(`文件传输完成: ${transfer.fileName}`)
+          // 更新数据库
+          this.databaseService.updateFileStatus(transfer.transferId, 'completed', transfer.fileSize)
+
+          // 如果是接收的文件，更新文件路径
+          if (transfer.direction === 'receive' && transfer.filePath) {
+            this.databaseService.updateFilePath(transfer.transferId, transfer.filePath)
+          }
+
+          // 发送消息通知 - 使用完整的 transfer 对象确保 status 字段存在
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.send('file:complete', transfer)
+          }
+        } else {
+          log.error(`文件传输失败: ${transfer.fileName} - ${error}`)
+          this.databaseService.updateFileStatus(transfer.transferId, 'failed')
+          // 发送失败通知
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.send('file:complete', transfer)
+          }
+        }
+      }
+    )
+
+    // 启动 TCP 服务器
+    try {
+      this.tcpPort = await this.tcpTransferService.startServer()
+      log.info(`TCP 文件传输服务启动，端口: ${this.tcpPort}`)
+    } catch (error) {
+      log.error('TCP 服务启动失败:', error)
+    }
   }
 
   private createUdpSocket(): void {
@@ -133,7 +196,7 @@ export class NetworkService {
     this.udpSocket.bind(UDP_PORT)
   }
 
-  private handleMessage(msg: Buffer, rinfo: dgram.RemoteInfo): void {
+  private handleMessage(msg: Buffer, _rinfo: dgram.RemoteInfo): void {
     try {
       const packet = this.decodePacket(msg)
 
@@ -182,6 +245,15 @@ export class NetworkService {
           break
         case 'TYPING':
           this.handleTyping(packet)
+          break
+        case 'FILE_NOTIFY':
+          this.handleFileNotify(packet)
+          break
+        case 'FILE_ACCEPT':
+          this.handleFileAccept(packet)
+          break
+        case 'FILE_REJECT':
+          this.handleFileReject(packet)
           break
       }
     } catch (error) {
@@ -345,6 +417,569 @@ export class NetworkService {
         })
       }
     }
+  }
+
+  private handleFileNotify(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      to: string
+      transferId: string
+      fileName: string
+      fileSize: number
+      fileMd5: string
+      fileType: string
+      isImage: boolean
+      thumbnailData?: string
+      tcpPort?: number
+    }
+
+    // 只处理发给自己的消息
+    if (payload.to !== this.selfUserId) {
+      return
+    }
+
+    log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}`)
+
+    // 存储待接收的文件请求
+    this.pendingFileRequests.set(payload.transferId, {
+      from: {
+        userId: packet.from.userId,
+        nickname: packet.from.nickname,
+        ip: packet.from.ip,
+        port: packet.from.port,
+        avatar: packet.from.avatar,
+        status: packet.from.status,
+        lastHeartbeat: Date.now(),
+        version: packet.from.version
+      },
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      fileMd5: payload.fileMd5,
+      mimeType: payload.fileType,
+      isImage: payload.isImage,
+      thumbnailData: payload.thumbnailData,
+      timestamp: Date.now()
+    })
+
+    // 通知渲染进程显示文件接收确认框
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('file:receive-request', {
+        transferId: payload.transferId,
+        fileName: payload.fileName,
+        fileSize: payload.fileSize,
+        fileMd5: payload.fileMd5,
+        mimeType: payload.fileType,
+        isImage: payload.isImage,
+        thumbnailData: payload.thumbnailData,
+        fromUserId: packet.from.userId,
+        fromNickname: packet.from.nickname,
+        fromAvatar: packet.from.avatar,
+        peerIp: packet.from.ip,
+        tcpPort: packet.from.port || TCP_PORT
+      })
+    }
+  }
+
+  private handleFileAccept(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      transferId: string
+      offset?: number
+      tcpPort?: number
+    }
+
+    log.info(`对方接受了文件传输: ${payload.transferId}, offset: ${payload.offset || 0}, tcpPort: ${payload.tcpPort}`)
+
+    // 开始发送文件
+    this.startFileSend(payload.transferId, payload.offset || 0, payload.tcpPort)
+  }
+
+  private handleFileReject(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      transferId: string
+      reason?: string
+    }
+
+    log.info(`对方拒绝了文件传输: ${payload.transferId}, 原因: ${payload.reason}`)
+
+    // 更新传输状态
+    const transfer = this.tcpTransferService?.getTransfer(payload.transferId)
+    if (transfer) {
+      transfer.status = 'rejected'
+      this.databaseService.updateFileStatus(payload.transferId, 'rejected')
+    }
+
+    // 通知渲染进程
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('file:rejected', {
+        transferId: payload.transferId,
+        reason: payload.reason
+      })
+    }
+  }
+
+  // 格式化文件大小
+  private formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  }
+
+  // 发送文件
+  async sendFile(to: string, filePath: string): Promise<{ success: boolean; transferId?: string; error?: string }> {
+    const targetUser = this.onlineUsers.get(to)
+    if (!targetUser) {
+      return { success: false, error: '用户不在线' }
+    }
+
+    try {
+      // 检查文件是否存在
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' }
+      }
+
+      const stats = fs.statSync(filePath)
+      const fileSize = stats.size
+      const fileName = path.basename(filePath)
+      const ext = path.extname(fileName).toLowerCase()
+
+      // 计算 MD5
+      const fileMd5 = await this.calculateFileMd5(filePath)
+
+      // 判断是否为图片
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+      const isImage = imageExtensions.includes(ext)
+
+      // 获取 MIME 类型
+      const mimeType = this.getMimeType(ext)
+
+      // 生成传输 ID
+      const transferId = generateTransferId()
+
+      // 保存文件记录到数据库
+      const fileRecord: FileRecord = {
+        fileId: transferId,
+        fileName,
+        filePath,
+        fileSize,
+        mimeType,
+        fileMd5,
+        direction: 'send',
+        peerId: to,
+        status: 'pending',
+        transferredBytes: 0,
+        isImage,
+        createdAt: Date.now()
+      }
+      this.databaseService.saveFile(fileRecord)
+
+      // 创建传输记录
+      const transfer: FileTransfer = {
+        transferId,
+        fileName,
+        filePath,
+        fileSize,
+        fileMd5,
+        mimeType,
+        direction: 'send',
+        peerId: to,
+        peerIp: targetUser.ip,
+        status: 'pending',
+        transferredBytes: 0,
+        isImage,
+        progress: 0,
+        speed: 0,
+        startTime: Date.now()
+      }
+      this.tcpTransferService?.addTransfer(transfer)
+
+      // 查找或创建会话
+      let conversation = this.databaseService.getConversationByTarget(to, 'single')
+      if (!conversation) {
+        conversation = this.databaseService.createConversation({
+          type: 'single',
+          targetId: to,
+          targetInfo: {
+            nickname: targetUser.nickname,
+            avatar: targetUser.avatar,
+            status: targetUser.status
+          }
+        })
+      }
+
+      if (!conversation) {
+        return { success: false, error: '无法创建会话' }
+      }
+
+      // 生成消息 ID
+      const messageId = uuidv4()
+      const now = Date.now()
+
+      // 保存消息到数据库
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId: conversation.conversationId,
+        senderId: this.selfUserId,
+        contentType: isImage ? 'image' : 'file',
+        content: fileName,
+        fileId: transferId
+      })
+
+      // 更新会话的最后消息
+      this.databaseService.updateConversationLastMessage(conversation.conversationId, messageId, now)
+
+      // 生成缩略图数据（如果是图片）
+      let thumbnailData: string | undefined
+      if (isImage) {
+        thumbnailData = await this.generateThumbnail(filePath)
+      }
+
+      // 发送 FILE_NOTIFY
+      const notifyPayload = {
+        to,
+        transferId,
+        fileName,
+        fileSize,
+        fileMd5,
+        fileType: mimeType,
+        isImage,
+        thumbnailData,
+        tcpPort: this.tcpPort
+      }
+
+      // 使用自定义 msgId
+      const packet: UdpPacket = {
+        magic: MAGIC,
+        version: VERSION,
+        type: 'FILE_NOTIFY',
+        msgId: uuidv4(),
+        timestamp: now,
+        from: {
+          userId: this.selfUserId,
+          nickname: this.selfNickname,
+          ip: this.localIP || this.getLocalIP(),
+          port: this.tcpPort,
+          status: this.selfStatus,
+          version: app.getVersion()
+        },
+        payload: notifyPayload
+      }
+
+      this.sendPacketDirect(packet)
+
+      // 通知渲染进程
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('file:send-start', {
+          transferId,
+          fileName,
+          fileSize,
+          isImage,
+          toUserId: to,
+          toNickname: targetUser.nickname
+        })
+      }
+
+      return { success: true, transferId }
+    } catch (error) {
+      log.error('发送文件失败:', error)
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // 开始文件发送（收到 FILE_ACCEPT 后）
+  private async startFileSend(transferId: string, offset: number = 0, targetTcpPort?: number): Promise<void> {
+    log.info(`开始文件发送: transferId=${transferId}, offset=${offset}, targetTcpPort=${targetTcpPort}`)
+    
+    const transfer = this.tcpTransferService?.getTransfer(transferId)
+    if (!transfer) {
+      log.error(`未找到传输记录: ${transferId}`)
+      // 列出所有可用的传输记录
+      const allTransfers = this.tcpTransferService?.getAllTransfers()
+      log.info(`可用的传输记录: ${allTransfers?.map(t => t.transferId).join(', ')}`)
+      return
+    }
+
+    log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}`)
+
+    const targetUser = this.onlineUsers.get(transfer.peerId)
+    if (!targetUser) {
+      log.error(`用户不在线: ${transfer.peerId}`)
+      // 列出所有在线用户
+      log.info(`在线用户: ${Array.from(this.onlineUsers.keys()).join(', ')}`)
+      return
+    }
+
+    // 使用接收方提供的 TCP 端口，如果没有则使用默认端口
+    const tcpPort = targetTcpPort || targetUser.port || TCP_PORT
+    log.info(`目标用户: ${targetUser.nickname} (${targetUser.ip}:${tcpPort})`)
+
+    try {
+      await this.tcpTransferService?.sendFile(
+        targetUser.ip,
+        tcpPort,
+        transfer.filePath,
+        transfer.peerId,
+        transferId,
+        offset
+      )
+      log.info(`文件发送完成: ${transfer.fileName}`)
+    } catch (error) {
+      log.error(`文件发送失败: ${error}`)
+      this.databaseService.updateFileStatus(transferId, 'failed')
+    }
+  }
+
+  // 接受文件传输
+  async acceptFile(transferId: string): Promise<{ success: boolean; error?: string }> {
+    log.info(`接受文件传输: ${transferId}`)
+    
+    const request = this.pendingFileRequests.get(transferId)
+    if (!request) {
+      log.error(`文件请求已过期: ${transferId}`)
+      return { success: false, error: '文件请求已过期' }
+    }
+
+    const { from, fileName, fileSize, fileMd5, mimeType, isImage, thumbnailData } = request
+    log.info(`准备接收文件: ${fileName} (${fileSize} bytes) from ${from.nickname} (${from.ip})`)
+
+    // 保存文件记录到数据库
+    const downloadPath = this.databaseService.getDownloadPath()
+    const filePath = path.join(downloadPath, `${Date.now()}_${fileName}`)
+    log.info(`文件保存路径: ${filePath}`)
+
+    const fileRecord: FileRecord = {
+      fileId: transferId,
+      fileName,
+      filePath,
+      fileSize,
+      mimeType,
+      fileMd5,
+      direction: 'receive',
+      peerId: from.userId,
+      status: 'pending',
+      transferredBytes: 0,
+      isImage,
+      thumbnailData,
+      createdAt: Date.now()
+    }
+    this.databaseService.saveFile(fileRecord)
+
+    // 创建传输记录
+    const transfer: FileTransfer = {
+      transferId,
+      fileName,
+      filePath,
+      fileSize,
+      fileMd5,
+      mimeType,
+      direction: 'receive',
+      peerId: from.userId,
+      peerIp: from.ip,
+      status: 'pending',
+      transferredBytes: 0,
+      isImage,
+      thumbnailData,
+      progress: 0,
+      speed: 0,
+      startTime: Date.now()
+    }
+    this.tcpTransferService?.addTransfer(transfer)
+    log.info(`传输记录已添加: ${transferId}`)
+
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(from.userId, 'single')
+    let isNewConversation = false
+    if (!conversation) {
+      conversation = this.databaseService.createConversation({
+        type: 'single',
+        targetId: from.userId,
+        targetInfo: {
+          nickname: from.nickname,
+          avatar: from.avatar,
+          status: from.status
+        }
+      })
+      isNewConversation = !!conversation
+    }
+
+    if (conversation) {
+      // 生成消息 ID
+      const messageId = uuidv4()
+      const now = Date.now()
+
+      // 保存消息到数据库
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId: conversation.conversationId,
+        senderId: from.userId,
+        contentType: isImage ? 'image' : 'file',
+        content: fileName,
+        fileId: transferId
+      })
+
+      // 更新会话的最后消息
+      this.databaseService.updateConversationLastMessage(conversation.conversationId, messageId, now)
+
+      // 发送通知到渲染进程
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('msg:receive', {
+          messageId,
+          conversationId: conversation.conversationId,
+          senderId: from.userId,
+          senderName: from.nickname,
+          contentType: isImage ? 'image' : 'file',
+          content: fileName,
+          fileId: transferId,
+          sentAt: now,
+          isNewConversation
+        })
+      }
+    }
+
+    // 发送 FILE_ACCEPT，包含本机 TCP 端口供发送方连接
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'FILE_ACCEPT',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: { 
+        transferId,
+        tcpPort: this.tcpPort  // 告诉发送方应该连接哪个 TCP 端口
+      }
+    }
+
+    // 单播发送到对方
+    this.sendPacketTo(packet, from.ip)
+
+    // 从待处理列表移除
+    this.pendingFileRequests.delete(transferId)
+
+    return { success: true }
+  }
+
+  // 拒绝文件传输
+  async rejectFile(transferId: string, reason?: string): Promise<void> {
+    const request = this.pendingFileRequests.get(transferId)
+    if (!request) {
+      return
+    }
+
+    // 发送 FILE_REJECT
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'FILE_REJECT',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: { transferId, reason }
+    }
+
+    // 单播发送到对方
+    this.sendPacketTo(packet, request.from.ip)
+
+    // 从待处理列表移除
+    this.pendingFileRequests.delete(transferId)
+
+    log.info(`已拒绝文件传输: ${transferId}`)
+  }
+
+  // 单播发送数据包
+  private sendPacketTo(packet: UdpPacket, targetIp: string): void {
+    if (!this.udpSocket) {
+      log.warn('UDP socket 未就绪')
+      return
+    }
+
+    const buffer = this.encodePacket(packet)
+    const targetPort = UDP_PORT
+
+    this.udpSocket.send(buffer, targetPort, targetIp, (err) => {
+      if (err) {
+        log.error(`发送数据包到 ${targetIp} 失败:`, err)
+      }
+    })
+  }
+
+  // 计算文件 MD5
+  private async calculateFileMd5(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('md5')
+      const stream = fs.createReadStream(filePath)
+
+      stream.on('data', (chunk) => hash.update(chunk))
+      stream.on('end', () => resolve(hash.digest('hex')))
+      stream.on('error', reject)
+    })
+  }
+
+  // 生成缩略图（Base64）
+  private async generateThumbnail(filePath: string): Promise<string | undefined> {
+    try {
+      // 使用 sharp 库生成缩略图
+      const sharp = require('sharp')
+      const thumbnail = await sharp(filePath)
+        .resize(240, 240, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer()
+      return `data:image/jpeg;base64,${thumbnail.toString('base64')}`
+    } catch (error) {
+      log.warn('生成缩略图失败:', error)
+      return undefined
+    }
+  }
+
+  // 获取 MIME 类型
+  private getMimeType(ext: string): string {
+    const mimeTypes: Record<string, string> = {
+      '.txt': 'text/plain',
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.js': 'application/javascript',
+      '.json': 'application/json',
+      '.pdf': 'application/pdf',
+      '.zip': 'application/zip',
+      '.rar': 'application/x-rar-compressed',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.bmp': 'image/bmp',
+      '.svg': 'image/svg+xml',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.mp4': 'video/mp4',
+      '.avi': 'video/x-msvideo',
+      '.mkv': 'video/x-matroska'
+    }
+    return mimeTypes[ext] || 'application/octet-stream'
+  }
+
+  // 获取传输服务
+  getTcpTransferService(): TcpTransferService | null {
+    return this.tcpTransferService
   }
 
   private broadcastOnline(): void {
@@ -648,6 +1283,10 @@ export class NetworkService {
 
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer)
+    }
+
+    if (this.tcpTransferService) {
+      this.tcpTransferService.closeServer()
     }
 
     if (this.udpSocket) {

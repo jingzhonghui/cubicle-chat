@@ -18,7 +18,14 @@ const invokeChannels = [
   'message:send',
   'message:withdraw',
   'settings:get',
-  'settings:set'
+  'settings:set',
+  'file:send',
+  'file:accept',
+  'file:reject',
+  'file:select',
+  'file:getList',
+  'file:open',
+  'file:openFolder'
 ]
 
 const receiveChannels = [
@@ -31,6 +38,9 @@ const receiveChannels = [
   'msg:withdrawn',
   'file:progress',
   'file:complete',
+  'file:receive-request',
+  'file:rejected',
+  'file:send-start',
   'typing:receive',
   'conversation:new'
 ]
@@ -82,6 +92,52 @@ export interface Message {
   isRecalled: boolean
   sentAt: number
   deliveredAt?: number
+}
+
+export interface FileRecord {
+  fileId: string
+  fileName: string
+  filePath?: string
+  fileSize: number
+  mimeType: string
+  fileMd5?: string
+  direction: 'send' | 'receive'
+  peerId: string
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
+  transferredBytes: number
+  isImage: boolean
+  thumbnailData?: string
+  startedAt?: number
+  completedAt?: number
+  createdAt: number
+}
+
+export interface FileTransfer {
+  transferId: string
+  fileName: string
+  fileSize: number
+  filePath?: string
+  direction: 'send' | 'receive'
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
+  progress: number
+  speed: number
+  isImage: boolean
+  thumbnailData?: string
+}
+
+export interface FileReceiveRequest {
+  transferId: string
+  fileName: string
+  fileSize: number
+  fileMd5: string
+  mimeType: string
+  isImage: boolean
+  thumbnailData?: string
+  fromUserId: string
+  fromNickname: string
+  fromAvatar?: string
+  peerIp: string
+  tcpPort: number
 }
 
 // API 实现

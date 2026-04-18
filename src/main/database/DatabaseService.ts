@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import log from 'electron-log'
 import os from 'os'
+import fs from 'fs'
 
 export interface UserInfo {
   userId: string
@@ -49,6 +50,24 @@ export interface Message {
   isRecalled: boolean
   sentAt: number
   deliveredAt?: number
+  createdAt: number
+}
+
+export interface FileRecord {
+  fileId: string
+  fileName: string
+  filePath?: string
+  fileSize: number
+  mimeType: string
+  fileMd5?: string
+  direction: 'send' | 'receive'
+  peerId: string
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected'
+  transferredBytes: number
+  isImage: boolean
+  thumbnailData?: string
+  startedAt?: number
+  completedAt?: number
   createdAt: number
 }
 
@@ -431,6 +450,7 @@ export class DatabaseService {
     contentType: Message['contentType']
     content: string
     replyToId?: string
+    fileId?: string
   }): Message {
     if (!this.db) throw new Error('数据库未初始化')
 
@@ -439,8 +459,8 @@ export class DatabaseService {
     const stmt = this.db.prepare(`
       INSERT INTO messages (
         message_id, conversation_id, sender_id, content_type, content,
-        reply_to_id, sent_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        reply_to_id, file_id, sent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -450,6 +470,7 @@ export class DatabaseService {
       data.contentType,
       data.content,
       data.replyToId || null,
+      data.fileId || null,
       now,
       now
     )
@@ -471,7 +492,7 @@ export class DatabaseService {
     }
   }
 
-  private updateConversationLastMessage(conversationId: string, messageId: string, timestamp: number): void {
+  updateConversationLastMessage(conversationId: string, messageId: string, timestamp: number): void {
     if (!this.db) return
 
     const stmt = this.db.prepare(`
@@ -580,5 +601,190 @@ export class DatabaseService {
       this.db = null
     }
     log.info('数据库连接已关闭')
+  }
+
+  // 文件相关
+  saveFile(file: FileRecord): FileRecord {
+    if (!this.db) throw new Error('数据库未初始化')
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO files (
+        file_id, file_name, file_path, file_size, mime_type, file_md5,
+        direction, peer_id, status, transferred_bytes, is_image, thumbnail_data,
+        started_at, completed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    stmt.run(
+      file.fileId,
+      file.fileName,
+      file.filePath || null,
+      file.fileSize,
+      file.mimeType,
+      file.fileMd5 || null,
+      file.direction,
+      file.peerId,
+      file.status,
+      file.transferredBytes,
+      file.isImage ? 1 : 0,
+      file.thumbnailData || null,
+      file.startedAt || null,
+      file.completedAt || null,
+      file.createdAt
+    )
+
+    return file
+  }
+
+  getFile(fileId: string): FileRecord | null {
+    if (!this.db) return null
+
+    const stmt = this.db.prepare('SELECT * FROM files WHERE file_id = ?')
+    const row = stmt.get(fileId) as {
+      file_id: string
+      file_name: string
+      file_path: string
+      file_size: number
+      mime_type: string
+      file_md5: string
+      direction: string
+      peer_id: string
+      status: string
+      transferred_bytes: number
+      is_image: number
+      thumbnail_data: string
+      started_at: number
+      completed_at: number
+      created_at: number
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      fileId: row.file_id,
+      fileName: row.file_name,
+      filePath: row.file_path,
+      fileSize: row.file_size,
+      mimeType: row.mime_type,
+      fileMd5: row.file_md5,
+      direction: row.direction as 'send' | 'receive',
+      peerId: row.peer_id,
+      status: row.status as FileRecord['status'],
+      transferredBytes: row.transferred_bytes,
+      isImage: Boolean(row.is_image),
+      thumbnailData: row.thumbnail_data,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      createdAt: row.created_at
+    }
+  }
+
+  getFileList(filter?: { direction?: 'send' | 'receive'; status?: FileRecord['status'] }): FileRecord[] {
+    if (!this.db) return []
+
+    let sql = 'SELECT * FROM files WHERE 1=1'
+    const params: unknown[] = []
+
+    if (filter?.direction) {
+      sql += ' AND direction = ?'
+      params.push(filter.direction)
+    }
+
+    if (filter?.status) {
+      sql += ' AND status = ?'
+      params.push(filter.status)
+    }
+
+    sql += ' ORDER BY created_at DESC'
+
+    const stmt = this.db.prepare(sql)
+    const rows = stmt.all(...params) as Array<{
+      file_id: string
+      file_name: string
+      file_path: string
+      file_size: number
+      mime_type: string
+      file_md5: string
+      direction: string
+      peer_id: string
+      status: string
+      transferred_bytes: number
+      is_image: number
+      thumbnail_data: string
+      started_at: number
+      completed_at: number
+      created_at: number
+    }>
+
+    return rows.map((row) => ({
+      fileId: row.file_id,
+      fileName: row.file_name,
+      filePath: row.file_path,
+      fileSize: row.file_size,
+      mimeType: row.mime_type,
+      fileMd5: row.file_md5,
+      direction: row.direction as 'send' | 'receive',
+      peerId: row.peer_id,
+      status: row.status as FileRecord['status'],
+      transferredBytes: row.transferred_bytes,
+      isImage: Boolean(row.is_image),
+      thumbnailData: row.thumbnail_data,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      createdAt: row.created_at
+    }))
+  }
+
+  updateFileStatus(fileId: string, status: FileRecord['status'], transferredBytes?: number): void {
+    if (!this.db) return
+
+    const updates: string[] = ['status = ?']
+    const params: unknown[] = [status]
+
+    if (transferredBytes !== undefined) {
+      updates.push('transferred_bytes = ?')
+      params.push(transferredBytes)
+    }
+
+    if (status === 'completed') {
+      updates.push('completed_at = ?')
+      params.push(Date.now())
+    }
+
+    if (status === 'transferring') {
+      updates.push('started_at = COALESCE(started_at, ?)')
+      params.push(Date.now())
+    }
+
+    params.push(fileId)
+
+    const stmt = this.db.prepare(`UPDATE files SET ${updates.join(', ')} WHERE file_id = ?`)
+    stmt.run(...params)
+  }
+
+  updateFilePath(fileId: string, filePath: string): void {
+    if (!this.db) return
+
+    const stmt = this.db.prepare('UPDATE files SET file_path = ? WHERE file_id = ?')
+    stmt.run(filePath, fileId)
+  }
+
+  deleteFile(fileId: string): void {
+    if (!this.db) return
+
+    const stmt = this.db.prepare('DELETE FROM files WHERE file_id = ?')
+    stmt.run(fileId)
+  }
+
+  getDownloadPath(): string {
+    const downloadPath = app.getPath('downloads')
+    const cubicleChatPath = join(downloadPath, 'CubicleChat')
+
+    // 确保目录存在
+    if (!fs.existsSync(cubicleChatPath)) {
+      fs.mkdirSync(cubicleChatPath, { recursive: true })
+    }
+
+    return cubicleChatPath
   }
 }

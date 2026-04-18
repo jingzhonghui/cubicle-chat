@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useMessageStore } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import MessageBubble from '@components/chat/MessageBubble'
+import FileReceiveModal, { useFileReceiveRequests } from '@components/chat/FileReceiveModal'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -96,11 +97,11 @@ function ChatHeader({ targetName, targetStatus }: { targetName: string; targetSt
 }
 
 // 输入框组件
-function MessageInput({ conversationId, disabled }: { conversationId: string; disabled?: boolean }): JSX.Element {
+function MessageInput({ conversationId, disabled, targetId }: { conversationId: string; disabled?: boolean; targetId: string }): JSX.Element {
   const [message, setMessage] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { sendMessage } = useMessageStore()
+  const { sendMessage, sendFileMessage } = useMessageStore()
 
   const emojis = ['😀', '😂', '🥰', '😎', '🤔', '😅', '👍', '❤️', '🔥', '✅', '🎉', '💡', '📌', '🚀', '👀', '💬', '🎨', '📊', '🗓️', '⚡', '😭', '😡', '🙏', '👋', '✨', '🌟', '💪', '🤝', '👏', '🙌']
 
@@ -125,6 +126,72 @@ function MessageInput({ conversationId, disabled }: { conversationId: string; di
     textareaRef.current?.focus()
   }
 
+  // 从文件路径获取文件名
+  const getFileName = (filePath: string): string => {
+    return filePath.split(/[\\/]/).pop() || filePath
+  }
+
+  // 判断是否为图片
+  const isImageFile = (fileName: string): boolean => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+    const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
+    return imageExtensions.includes(ext)
+  }
+
+  // 选择图片
+  const handleSelectImage = async () => {
+    try {
+      const filePath = await window.electronAPI.invoke<string | null>('file:select')
+      if (filePath && targetId) {
+        const fileName = getFileName(filePath)
+        const isImage = true
+        // 先添加到本地消息列表（临时消息）
+        const tempFileId = `temp-${Date.now()}`
+        await sendFileMessage(conversationId, fileName, tempFileId, isImage)
+        // 然后发送文件
+        const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+        if (result?.success && result.transferId) {
+          // 更新消息的 fileId（实际 transferId）
+          const { useMessageStore } = await import('@store/messageStore')
+          useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+        } else {
+          // 发送失败，更新状态
+          const { useMessageStore } = await import('@store/messageStore')
+          useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
+        }
+      }
+    } catch (error) {
+      console.error('发送图片失败:', error)
+    }
+  }
+
+  // 选择文件
+  const handleSelectFile = async () => {
+    try {
+      const filePath = await window.electronAPI.invoke<string | null>('file:select')
+      if (filePath && targetId) {
+        const fileName = getFileName(filePath)
+        const isImage = isImageFile(fileName)
+        // 先添加到本地消息列表（临时消息）
+        const tempFileId = `temp-${Date.now()}`
+        await sendFileMessage(conversationId, fileName, tempFileId, isImage)
+        // 然后发送文件
+        const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+        if (result?.success && result.transferId) {
+          // 更新消息的 fileId（实际 transferId）
+          const { useMessageStore } = await import('@store/messageStore')
+          useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+        } else {
+          // 发送失败，更新状态
+          const { useMessageStore } = await import('@store/messageStore')
+          useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
+        }
+      }
+    } catch (error) {
+      console.error('发送文件失败:', error)
+    }
+  }
+
   return (
     <div className="bg-[var(--bg-surface)] border-t border-[var(--border)] flex-shrink-0 relative">
       {/* 表情面板 */}
@@ -146,10 +213,18 @@ function MessageInput({ conversationId, disabled }: { conversationId: string; di
 
       {/* 工具栏 */}
       <div className="flex items-center gap-0.5 px-3 border-b border-[var(--border)] h-9">
-        <button className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer" title="发送图片">
+        <button
+          onClick={handleSelectImage}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          title="发送图片"
+        >
           🖼️
         </button>
-        <button className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer" title="发送文件">
+        <button
+          onClick={handleSelectFile}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          title="发送文件"
+        >
           📎
         </button>
         <button
@@ -195,6 +270,9 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   const { conversations, messages } = useMessageStore()
   const { userInfo } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // 文件接收请求
+  const { pendingRequest, acceptFile, rejectFile, closeModal } = useFileReceiveRequests()
 
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
@@ -306,7 +384,18 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       </div>
 
       {/* 输入框 */}
-      <MessageInput conversationId={selectedConversationId} />
+      <MessageInput
+        conversationId={selectedConversationId}
+        targetId={currentConversation.targetId}
+      />
+
+      {/* 文件接收弹窗 */}
+      <FileReceiveModal
+        request={pendingRequest}
+        onAccept={acceptFile}
+        onReject={rejectFile}
+        onClose={closeModal}
+      />
     </div>
   )
 }

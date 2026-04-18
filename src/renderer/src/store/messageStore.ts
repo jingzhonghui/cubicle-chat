@@ -42,9 +42,11 @@ interface MessageStore {
   loadMessages: (conversationId: string, limit?: number) => Promise<void>
   addMessage: (message: Message) => void
   sendMessage: (conversationId: string, content: string, contentType?: 'text' | 'emoji') => Promise<void>
+  sendFileMessage: (conversationId: string, fileName: string, fileId: string, isImage: boolean) => Promise<void>
   recallMessage: (messageId: string, conversationId: string) => Promise<void>
   updateMessageStatus: (messageId: string, status: Message['status']) => void
   updateMessageId: (oldId: string, newId: string) => void
+  updateMessageFileId: (oldFileId: string, newFileId: string) => void
   setCurrentConversation: (conversationId: string | null) => void
   setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => void
   createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
@@ -163,6 +165,39 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }
   },
 
+  sendFileMessage: async (conversationId: string, fileName: string, fileId: string, isImage: boolean) => {
+    const conversation = get().conversations.find((c) => c.conversationId === conversationId)
+    const userInfo = useUserStore.getState().userInfo
+    if (!conversation || !userInfo) return
+
+    // 创建本地消息（发送中状态）
+    const localMessageId = `temp-file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const tempMessage: Message = {
+      messageId: localMessageId,
+      conversationId,
+      senderId: userInfo.userId,
+      senderName: userInfo.nickname,
+      contentType: isImage ? 'image' : 'file',
+      content: fileName,
+      fileId,
+      status: 'sending',
+      isRecalled: false,
+      sentAt: Date.now()
+    }
+
+    // 添加到消息列表
+    get().addMessage(tempMessage)
+
+    // 更新会话的最后消息
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.conversationId === conversationId
+          ? { ...c, lastMessage: fileName, lastMessageAt: Date.now() }
+          : c
+      )
+    }))
+  },
+
   recallMessage: async (messageId: string, conversationId: string) => {
     try {
       await window.electronAPI.invoke<boolean>('message:withdraw', { messageId, conversationId })
@@ -183,6 +218,14 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     set((state) => ({
       messages: state.messages.map((m) =>
         m.messageId === oldId ? { ...m, messageId: newId } : m
+      )
+    }))
+  },
+
+  updateMessageFileId: (oldFileId: string, newFileId: string) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.fileId === oldFileId ? { ...m, fileId: newFileId } : m
       )
     }))
   },
@@ -257,10 +300,11 @@ export function initMessageStoreListeners(): () => void {
     senderName: string
     contentType: string
     content: string
+    fileId?: string
     sentAt: number
     isNewConversation?: boolean
   }) => {
-    console.log('[MessageStore] 收到 msg:receive 事件:', data.messageId)
+    console.log('[MessageStore] 收到 msg:receive 事件:', data.messageId, 'fileId:', data.fileId)
 
     const message: Message = {
       messageId: data.messageId,
@@ -269,6 +313,7 @@ export function initMessageStoreListeners(): () => void {
       senderName: data.senderName,
       contentType: data.contentType as Message['contentType'],
       content: data.content,
+      fileId: data.fileId,
       status: 'delivered',
       isRecalled: false,
       sentAt: data.sentAt,

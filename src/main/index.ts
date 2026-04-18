@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from './utils'
 import log from 'electron-log'
@@ -226,6 +226,53 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('settings:set', (_, key, value) => {
     return databaseService?.setSetting(key, value) ?? false
+  })
+
+  // 文件传输
+  ipcMain.handle('file:select', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openFile'],
+      title: '选择要发送的文件'
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle('file:send', async (_, data: { to: string; filePath: string }) => {
+    const result = await networkService?.sendFile(data.to, data.filePath)
+    return result ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('file:accept', async (_, data: { transferId: string }) => {
+    const result = await networkService?.acceptFile(data.transferId)
+    return result ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('file:reject', async (_, data: { transferId: string; reason?: string }) => {
+    await networkService?.rejectFile(data.transferId, data.reason)
+    return true
+  })
+
+  ipcMain.handle('file:getList', async (_, filter?: { direction?: 'send' | 'receive'; status?: string }) => {
+    return databaseService?.getFileList(filter as { direction?: 'send' | 'receive'; status?: 'pending' | 'transferring' | 'completed' | 'failed' | 'rejected' }) ?? []
+  })
+
+  ipcMain.handle('file:open', async (_, data: { filePath: string }) => {
+    if (data.filePath && await app.isPackaged) {
+      await shell.openPath(data.filePath)
+      return true
+    }
+    return false
+  })
+
+  ipcMain.handle('file:openFolder', async (_, data: { filePath: string }) => {
+    if (data.filePath) {
+      shell.showItemInFolder(data.filePath)
+      return true
+    }
+    return false
   })
 
   log.info('IPC 处理器注册完成')
