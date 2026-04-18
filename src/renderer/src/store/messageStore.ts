@@ -67,11 +67,29 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   loadMessages: async (conversationId: string, limit = 50) => {
     try {
       set({ isLoading: true })
-      const messages = await window.electronAPI.invoke<Message[]>('message:getHistory', {
+      const serverMessages = await window.electronAPI.invoke<Message[]>('message:getHistory', {
         conversationId,
         limit
+      }) || []
+      
+      // 合并现有消息和服务器消息，避免丢失本地消息
+      set((state) => {
+        // 保留不属于当前会话的本地消息（如正在发送的临时消息）
+        const otherMessages = state.messages.filter((m) => {
+          // 保留其他会话的消息
+          if (m.conversationId !== conversationId) return true
+          // 保留当前会话的临时消息（还没收到服务器确认的）
+          if (m.messageId.startsWith('temp-')) return true
+          return false
+        })
+        
+        // 合并服务器消息和保留的本地消息
+        const allMessages = [...otherMessages, ...serverMessages]
+        // 按时间排序
+        allMessages.sort((a, b) => a.sentAt - b.sentAt)
+        
+        return { messages: allMessages, currentConversationId: conversationId }
       })
-      set({ messages: messages || [], currentConversationId: conversationId })
     } catch (error) {
       console.error('加载消息历史失败:', error)
     } finally {

@@ -440,8 +440,42 @@ export class NetworkService {
       return { success: false }
     }
 
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(data.to, 'single')
+    if (!conversation) {
+      conversation = this.databaseService.createConversation({
+        type: 'single',
+        targetId: data.to,
+        targetInfo: {
+          nickname: targetUser.nickname,
+          avatar: targetUser.avatar,
+          status: targetUser.status
+        }
+      })
+    }
+
+    if (!conversation) {
+      log.error('无法创建会话保存发送的消息')
+      return { success: false }
+    }
+
     // 生成消息 ID
     const messageId = uuidv4()
+    const now = Date.now()
+
+    // 保存消息到数据库
+    try {
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId: conversation.conversationId,
+        senderId: this.selfUserId,
+        contentType: data.contentType as 'text' | 'emoji' | 'image' | 'file',
+        content: data.content,
+        replyToId: data.replyTo
+      })
+    } catch (error) {
+      log.error('保存发送消息失败:', error)
+    }
 
     const payload = {
       to: data.to,
@@ -456,7 +490,7 @@ export class NetworkService {
       version: VERSION,
       type: 'TEXT',
       msgId: messageId,
-      timestamp: Date.now(),
+      timestamp: now,
       from: {
         userId: this.selfUserId,
         nickname: this.selfNickname,
