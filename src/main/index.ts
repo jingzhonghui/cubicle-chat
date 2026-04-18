@@ -72,18 +72,21 @@ function createWindow(): void {
 
 // 创建系统托盘
 function createTray(): void {
-  // 创建托盘图标
-  const iconPath = join(__dirname, '../../resources/icon.png')
+  // 根据环境选择图标路径
+  const iconPath = is.dev
+    ? join(__dirname, '../../resources/tray.png')
+    : join(process.resourcesPath, 'app.asar.unpacked/resources/tray.png')
+
   let trayIcon: nativeImage
 
   try {
     trayIcon = nativeImage.createFromPath(iconPath)
-    if (trayIcon.isEmpty()) {
-      // 如果图标不存在，创建一个简单的默认图标
-      trayIcon = nativeImage.createEmpty()
-    }
   } catch {
     trayIcon = nativeImage.createEmpty()
+  }
+
+  if (trayIcon.isEmpty()) {
+    return
   }
 
   tray = new Tray(trayIcon)

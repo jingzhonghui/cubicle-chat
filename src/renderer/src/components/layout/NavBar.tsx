@@ -17,7 +17,7 @@ function NavIcon({ type, active, badge }: { type: PageType; active: boolean; bad
   }
 
   return (
-    <div className="relative">
+    <span className="relative">
       <span className="text-lg" role="img" aria-label={icons[type].label}>
         {icons[type].icon}
       </span>
@@ -26,14 +26,17 @@ function NavIcon({ type, active, badge }: { type: PageType; active: boolean; bad
           {badge > 99 ? '99+' : badge}
         </span>
       )}
-    </div>
+    </span>
   )
 }
 
 function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
-  const { userInfo } = useUserStore()
+  const { userInfo, onlineUsers } = useUserStore()
 
   const navItems: PageType[] = ['chat', 'users', 'files', 'settings']
+
+  // 获取在线用户数量（排除自己）
+  const onlineCount = onlineUsers.length
 
   // 获取昵称首字
   const avatarChar = userInfo?.nickname?.charAt(0) || '?'
@@ -66,9 +69,13 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)]'
             }
           `}
-          title={page === 'chat' ? '会话列表' : page === 'users' ? '联系人' : page === 'files' ? '文件传输' : '设置'}
+          title={page === 'chat' ? '会话列表' : page === 'users' ? `联系人 (${onlineCount}人在线)` : page === 'files' ? '文件传输' : '设置'}
         >
-          <NavIcon type={page} active={currentPage === page} />
+          <NavIcon
+            type={page}
+            active={currentPage === page}
+            badge={page === 'users' && onlineCount > 0 ? onlineCount : undefined}
+          />
         </button>
       ))}
     </div>

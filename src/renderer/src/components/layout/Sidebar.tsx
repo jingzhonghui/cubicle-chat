@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMessageStore } from '@store/messageStore'
+import UsersPage from './UsersPage'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -136,6 +137,16 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
   const { conversations } = useMessageStore()
 
   // 根据当前页面显示不同内容
+  // 用户页面显示在线用户列表
+  if (currentPage === 'users') {
+    return (
+      <UsersPage
+        onSelectUser={(userId) => onSelectConversation(userId)}
+      />
+    )
+  }
+
+  // 其他非聊天页面显示空占位
   if (currentPage !== 'chat') {
     return <div className="w-[var(--sidebar-w)] bg-[var(--bg-surface)] border-r border-[var(--border)] flex-shrink-0" />
   }

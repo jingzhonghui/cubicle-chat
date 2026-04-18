@@ -236,11 +236,15 @@ export class DatabaseService {
   saveUser(user: OnlineUser): void {
     if (!this.db) return
 
+    // 检查用户是否已存在
+    const existing = this.db.prepare('SELECT first_seen_at FROM users WHERE user_id = ?').get(user.userId) as { first_seen_at: number } | undefined
+    const firstSeenAt = existing?.first_seen_at || user.lastHeartbeat
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO users (
         user_id, nickname, avatar, status, ip_address, udp_port, tcp_port,
-        client_version, last_seen_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        client_version, last_seen_at, first_seen_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -249,9 +253,11 @@ export class DatabaseService {
       user.avatar || null,
       user.status,
       user.ip,
-      user.port,
+      user.port, // udp_port
+      null,      // tcp_port（暂未使用）
       user.version,
       user.lastHeartbeat,
+      firstSeenAt,
       Date.now()
     )
   }

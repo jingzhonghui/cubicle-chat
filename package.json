@@ -1,6 +1,6 @@
 {
   "name": "cubicle-chat",
-  "version": "1.0.0",
+  "version": "0.0.3",
   "description": "局域网即时通讯工具",
   "main": "./out/main/index.js",
   "author": "CubicleChat Team",
@@ -11,6 +11,7 @@
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "npm run build && electron-builder --win",
+    "build:win:zip": "npm run build && electron-builder --win zip",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux"
   },

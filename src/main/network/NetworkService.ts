@@ -3,7 +3,7 @@ import os from 'os'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
 import { DatabaseService } from '../database/DatabaseService'
-import { v4 as uuidv4 } from 'uuid'
+import { app } from 'electron'
 
 // 包类型
 export type PacketType =
@@ -72,7 +72,8 @@ export class NetworkService {
   private selfUserId: string
   private selfNickname: string
   private selfStatus: UserStatus = 'online'
-  private broadcastAddress: string = '255.255.255.255'
+  private broadcastAddress: string = ''
+  private localIP: string = ''
 
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService) {
     this.mainWindow = mainWindow
@@ -91,7 +92,7 @@ export class NetworkService {
         this.createUdpSocket()
         this.startHeartbeat()
         this.startCleanup()
-        this.broadcastOnline()
+        // broadcastOnline 会在 listening 事件后调用
         resolve()
       } catch (error) {
         log.error('网络服务初始化失败:', error)
@@ -112,11 +113,17 @@ export class NetworkService {
     })
 
     this.udpSocket.on('listening', () => {
-      const address = this.udpSocket!.address()
-      log.info(`UDP Socket 监听中: ${address.address}:${address.port}`)
-
       // 设置广播
       this.udpSocket!.setBroadcast(true)
+      
+      // 计算本机 IP 和广播地址
+      this.localIP = this.getLocalIP()
+      this.broadcastAddress = this.getBroadcastAddress()
+      
+      // 初始化完成后发送上线广播
+      setTimeout(() => {
+        this.broadcastOnline()
+      }, 500)
     })
 
     this.udpSocket.bind(UDP_PORT)
@@ -141,9 +148,14 @@ export class NetworkService {
         case 'ONLINE':
         case 'HEARTBEAT':
           this.handleUserOnline(packet)
+          // ONLINE 需要回复 ACK，但 HEARTBEAT 不需要
+          if (packet.type === 'ONLINE') {
+            this.sendPacket('ONLINE_ACK', {})
+          }
           break
         case 'ONLINE_ACK':
           this.handleUserOnline(packet)
+          // ONLINE_ACK 不需要再回复，避免无限循环
           break
         case 'OFFLINE':
           this.handleUserOffline(packet.from.userId)
@@ -163,8 +175,6 @@ export class NetworkService {
         case 'TYPING':
           this.handleTyping(packet)
           break
-        default:
-          log.debug('未知的消息类型:', packet.type)
       }
     } catch (error) {
       log.error('处理消息失败:', error)
@@ -191,13 +201,12 @@ export class NetworkService {
 
     // 通知渲染进程
     if (isNew) {
+      log.info(`发现新用户: ${user.nickname} (${user.ip})`)
       this.mainWindow.webContents.send('user:online', user)
     } else {
       this.mainWindow.webContents.send('user:update', user)
     }
-
-    // 回复 ACK
-    this.sendPacket('ONLINE_ACK', {})
+    // 注意：ACK 回复在 switch 语句中处理，避免无限循环
   }
 
   private handleUserOffline(userId: string): void {
@@ -296,7 +305,10 @@ export class NetworkService {
   }
 
   private sendPacket(type: PacketType, payload: Record<string, unknown>): void {
-    if (!this.udpSocket) return
+    if (!this.udpSocket || !this.broadcastAddress) {
+      log.warn('UDP socket 未就绪或广播地址未设置')
+      return
+    }
 
     const packet: UdpPacket = {
       magic: MAGIC,
@@ -307,10 +319,10 @@ export class NetworkService {
       from: {
         userId: this.selfUserId,
         nickname: this.selfNickname,
-        ip: this.getLocalIP(),
+        ip: this.localIP || this.getLocalIP(),
         port: TCP_PORT,
         status: this.selfStatus,
-        version: '1.0.0'
+        version: app.getVersion()
       },
       payload
     }
@@ -343,12 +355,42 @@ export class NetworkService {
       const iface = interfaces[name]
       if (!iface) continue
       for (const info of iface) {
-        if (info.family === 'IPv4' && !info.internal) {
+        // 找到第一个非内部（局域网）的 IPv4 地址
+        if (info.family === 'IPv4' && !info.internal && !info.address.startsWith('169.254')) {
           return info.address
         }
       }
     }
     return '127.0.0.1'
+  }
+  
+  // 计算给定 IP 的子网广播地址（根据 netmask 动态计算）
+  private getBroadcastAddress(): string {
+    const ip = this.localIP || this.getLocalIP()
+    if (ip === '127.0.0.1') {
+      return '127.0.0.1' // 本地回环不用广播
+    }
+    
+    const interfaces = os.networkInterfaces()
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name]
+      if (!iface) continue
+      for (const info of iface) {
+        // 找到匹配的本机 IP 接口
+        if (info.family === 'IPv4' && !info.internal && info.address === ip && info.netmask) {
+          // 根据 netmask 计算广播地址
+          // 例如：IP=192.168.31.35, netmask=255.255.255.0
+          // 广播地址 = IP | (~netmask)
+          const ipParts = ip.split('.').map(Number)
+          const maskParts = info.netmask.split('.').map(Number)
+          const broadcastParts = ipParts.map((ipPart, i) => ipPart | (~maskParts[i] & 255))
+          return broadcastParts.join('.')
+        }
+      }
+    }
+    
+    // 回退到受限广播地址（适用于所有网络）
+    return '255.255.255.255'
   }
 
   // 公开方法
