@@ -76,7 +76,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
         conversationId,
         limit
       }) || []
-      
+
       // 合并现有消息和服务器消息，避免丢失本地消息
       set((state) => {
         // 保留不属于当前会话的本地消息（如正在发送的临时消息）
@@ -84,15 +84,27 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
           // 保留其他会话的消息
           if (m.conversationId !== conversationId) return true
           // 保留当前会话的临时消息（还没收到服务器确认的）
-          if (m.messageId.startsWith('temp-')) return true
+          if (m.messageId.startsWith('temp-') || m.messageId.startsWith('temp-file-')) return true
           return false
         })
-        
+
+        // 使用 serverMessages 创建 Map 去重（按 messageId）
+        const serverMessageIds = new Set(serverMessages.map((m) => m.messageId))
+
+        // 过滤掉已存在于 serverMessages 中的本地消息（避免重复显示）
+        const uniqueLocalMessages = otherMessages.filter((m) => {
+          // 跳过服务器已存在的消息（通过 messageId 或 fileId 匹配）
+          if (serverMessageIds.has(m.messageId)) return false
+          // 对于文件消息，也可以通过 fileId 去重
+          if (m.fileId && serverMessages.some((sm) => sm.fileId === m.fileId)) return false
+          return true
+        })
+
         // 合并服务器消息和保留的本地消息
-        const allMessages = [...otherMessages, ...serverMessages]
+        const allMessages = [...uniqueLocalMessages, ...serverMessages]
         // 按时间排序
         allMessages.sort((a, b) => a.sentAt - b.sentAt)
-        
+
         return { messages: allMessages, currentConversationId: conversationId }
       })
     } catch (error) {

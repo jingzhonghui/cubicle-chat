@@ -152,9 +152,10 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         // 然后发送文件
         const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
         if (result?.success && result.transferId) {
-          // 更新消息的 fileId（实际 transferId）
+          // 更新消息的 fileId（实际 transferId），并设置为发送中状态
           const { useMessageStore } = await import('@store/messageStore')
           useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+          useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
         } else {
           // 发送失败，更新状态
           const { useMessageStore } = await import('@store/messageStore')
@@ -181,9 +182,10 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         // 然后发送文件
         const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
         if (result?.success && result.transferId) {
-          // 更新消息的 fileId（实际 transferId）
+          // 更新消息的 fileId（实际 transferId），并设置为发送中状态
           const { useMessageStore } = await import('@store/messageStore')
           useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+          useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
         } else {
           // 发送失败，更新状态
           const { useMessageStore } = await import('@store/messageStore')

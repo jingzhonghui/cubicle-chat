@@ -437,8 +437,16 @@ export class NetworkService {
       return
     }
 
-    log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}`)
+    log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}, isImage=${payload.isImage}`)
 
+    // 图片自动接受，无需确认
+    if (payload.isImage) {
+      log.info(`图片自动接受: ${payload.fileName}`)
+      this.autoAcceptImage(packet, payload)
+      return
+    }
+
+    // 非图片文件需要确认
     // 存储待接收的文件请求
     this.pendingFileRequests.set(payload.transferId, {
       from: {
@@ -477,6 +485,161 @@ export class NetworkService {
         tcpPort: packet.from.port || TCP_PORT
       })
     }
+  }
+
+  // 自动接受图片
+  private async autoAcceptImage(packet: UdpPacket, payload: {
+    to: string
+    transferId: string
+    fileName: string
+    fileSize: number
+    fileMd5: string
+    fileType: string
+    isImage: boolean
+    thumbnailData?: string
+    tcpPort?: number
+  }): Promise<void> {
+    const request = {
+      from: {
+        userId: packet.from.userId,
+        nickname: packet.from.nickname,
+        ip: packet.from.ip,
+        port: packet.from.port,
+        avatar: packet.from.avatar,
+        status: packet.from.status,
+        lastHeartbeat: Date.now(),
+        version: packet.from.version
+      },
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      fileMd5: payload.fileMd5,
+      mimeType: payload.fileType,
+      isImage: payload.isImage,
+      thumbnailData: payload.thumbnailData,
+      timestamp: Date.now()
+    }
+
+    const { from, fileName, fileSize, fileMd5, mimeType, isImage, thumbnailData } = request
+
+    // 保存文件记录到数据库
+    const downloadPath = this.databaseService.getDownloadPath()
+    const filePath = path.join(downloadPath, `${Date.now()}_${fileName}`)
+    log.info(`图片自动接收，文件保存路径: ${filePath}`)
+
+    const fileRecord: FileRecord = {
+      fileId: payload.transferId,
+      fileName,
+      filePath,
+      fileSize,
+      mimeType,
+      fileMd5,
+      direction: 'receive',
+      peerId: from.userId,
+      status: 'pending',
+      transferredBytes: 0,
+      isImage,
+      thumbnailData,
+      createdAt: Date.now()
+    }
+    this.databaseService.saveFile(fileRecord)
+
+    // 创建传输记录
+    const transfer: FileTransfer = {
+      transferId: payload.transferId,
+      fileName,
+      filePath,
+      fileSize,
+      fileMd5,
+      mimeType,
+      direction: 'receive',
+      peerId: from.userId,
+      peerIp: from.ip,
+      status: 'pending',
+      transferredBytes: 0,
+      isImage,
+      thumbnailData,
+      progress: 0,
+      speed: 0,
+      startTime: Date.now()
+    }
+    this.tcpTransferService?.addTransfer(transfer)
+    log.info(`图片传输记录已添加: ${payload.transferId}`)
+
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(from.userId, 'single')
+    let isNewConversation = false
+    if (!conversation) {
+      conversation = this.databaseService.createConversation({
+        type: 'single',
+        targetId: from.userId,
+        targetInfo: {
+          nickname: from.nickname,
+          avatar: from.avatar,
+          status: from.status
+        }
+      })
+      isNewConversation = !!conversation
+    }
+
+    if (conversation) {
+      // 生成消息 ID
+      const messageId = uuidv4()
+      const now = Date.now()
+
+      // 保存消息到数据库
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId: conversation.conversationId,
+        senderId: from.userId,
+        contentType: isImage ? 'image' : 'file',
+        content: fileName,
+        fileId: payload.transferId
+      })
+
+      // 更新会话的最后消息
+      this.databaseService.updateConversationLastMessage(conversation.conversationId, messageId, now)
+
+      // 发送通知到渲染进程（不显示确认框，只显示消息）
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('msg:receive', {
+          messageId,
+          conversationId: conversation.conversationId,
+          senderId: from.userId,
+          senderName: from.nickname,
+          contentType: isImage ? 'image' : 'file',
+          content: fileName,
+          fileId: payload.transferId,
+          sentAt: now,
+          isNewConversation
+        })
+      }
+    }
+
+    // 发送 FILE_ACCEPT，包含本机 TCP 端口供发送方连接
+    const packetResponse: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'FILE_ACCEPT',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        transferId: payload.transferId,
+        tcpPort: this.tcpPort
+      }
+    }
+
+    // 单播发送到对方
+    this.sendPacketTo(packetResponse, from.ip)
+
+    log.info(`图片自动接受已发送 FILE_ACCEPT: ${payload.transferId}`)
   }
 
   private handleFileAccept(packet: UdpPacket): void {

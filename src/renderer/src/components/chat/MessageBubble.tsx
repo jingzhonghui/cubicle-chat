@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useMessageStore } from '../../store/messageStore'
 
 interface Message {
   messageId: string
@@ -120,6 +121,12 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
           // 图片传输完成后，使用 local-resource:// 协议加载本地图片
           if (message.contentType === 'image' && data.status === 'completed' && data.filePath) {
             setImageUrl(toLocalResourceUrl(data.filePath))
+          }
+          // 更新消息状态
+          if (data.status === 'completed') {
+            useMessageStore.getState().updateMessageStatus(message.messageId, 'sent')
+          } else if (data.status === 'failed') {
+            useMessageStore.getState().updateMessageStatus(message.messageId, 'failed')
           }
         }
       })
