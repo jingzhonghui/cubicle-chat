@@ -94,17 +94,32 @@ export const useUserStore = create<UserStore>((set, get) => ({
   }
 }))
 
-// 初始化事件监听
-if (typeof window !== 'undefined' && window.electronAPI) {
-  window.electronAPI.on('user:online', (user: OnlineUser) => {
+// 初始化事件监听 - 返回取消订阅函数
+export function initUserStoreListeners(): () => void {
+  if (typeof window === 'undefined' || !window.electronAPI) {
+    return () => {}
+  }
+
+  console.log('[UserStore] 初始化事件监听')
+
+  const unsubscribeOnline = window.electronAPI.on('user:online', (user: OnlineUser) => {
+    console.log('[UserStore] 收到 user:online 事件:', user.nickname)
     useUserStore.getState().addOnlineUser(user)
   })
 
-  window.electronAPI.on('user:offline', (data: { userId: string }) => {
+  const unsubscribeOffline = window.electronAPI.on('user:offline', (data: { userId: string }) => {
+    console.log('[UserStore] 收到 user:offline 事件:', data.userId)
     useUserStore.getState().removeOnlineUser(data.userId)
   })
 
-  window.electronAPI.on('user:update', (user: OnlineUser) => {
+  const unsubscribeUpdate = window.electronAPI.on('user:update', (user: OnlineUser) => {
+    console.log('[UserStore] 收到 user:update 事件:', user.nickname)
     useUserStore.getState().updateOnlineUser(user)
   })
+
+  return () => {
+    unsubscribeOnline()
+    unsubscribeOffline()
+    unsubscribeUpdate()
+  }
 }

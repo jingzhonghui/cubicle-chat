@@ -113,12 +113,16 @@ export class NetworkService {
     })
 
     this.udpSocket.on('listening', () => {
+      log.info('UDP socket 开始监听')
+      
       // 设置广播
       this.udpSocket!.setBroadcast(true)
       
       // 计算本机 IP 和广播地址
       this.localIP = this.getLocalIP()
       this.broadcastAddress = this.getBroadcastAddress()
+      
+      log.info(`本机 IP: ${this.localIP}, 广播地址: ${this.broadcastAddress}`)
       
       // 初始化完成后发送上线广播
       setTimeout(() => {
@@ -135,13 +139,17 @@ export class NetworkService {
 
       // 过滤无效包
       if (!packet || packet.magic !== MAGIC || packet.version !== VERSION) {
+        log.debug(`收到无效包: magic=${packet?.magic}, version=${packet?.version}`)
         return
       }
 
       // 过滤自己的消息
       if (packet.from.userId === this.selfUserId) {
+        log.debug('过滤自己的消息')
         return
       }
+
+      log.debug(`收到消息: type=${packet.type}, from=${packet.from.nickname} (${packet.from.ip})`)
 
       // 处理不同类型的消息
       switch (packet.type) {
@@ -196,15 +204,22 @@ export class NetworkService {
     const isNew = !this.onlineUsers.has(user.userId)
     this.onlineUsers.set(user.userId, user)
 
+    log.info(`处理用户上线: ${user.nickname} (${user.ip}), isNew=${isNew}, onlineUsersCount=${this.onlineUsers.size}`)
+
     // 保存到数据库
     this.databaseService.saveUser(user)
 
-    // 通知渲染进程
-    if (isNew) {
-      log.info(`发现新用户: ${user.nickname} (${user.ip})`)
-      this.mainWindow.webContents.send('user:online', user)
+    // 通知渲染进程（检查窗口是否可用）
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      if (isNew) {
+        log.info(`发送 user:online 事件到渲染进程: ${user.nickname}`)
+        this.mainWindow.webContents.send('user:online', user)
+      } else {
+        log.debug(`发送 user:update 事件到渲染进程: ${user.nickname}`)
+        this.mainWindow.webContents.send('user:update', user)
+      }
     } else {
-      this.mainWindow.webContents.send('user:update', user)
+      log.warn(`窗口不可用，无法发送用户上线事件: ${user.nickname}`)
     }
     // 注意：ACK 回复在 switch 语句中处理，避免无限循环
   }
@@ -212,7 +227,9 @@ export class NetworkService {
   private handleUserOffline(userId: string): void {
     if (this.onlineUsers.has(userId)) {
       this.onlineUsers.delete(userId)
-      this.mainWindow.webContents.send('user:offline', { userId })
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('user:offline', { userId })
+      }
     }
   }
 
@@ -294,35 +311,44 @@ export class NetworkService {
 
   private handleTextAck(packet: UdpPacket): void {
     const payload = packet.payload as { ackMsgId: string }
-    this.mainWindow.webContents.send('msg:ack', { messageId: payload.ackMsgId })
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:ack', { messageId: payload.ackMsgId })
+    }
   }
 
   private handleWithdraw(packet: UdpPacket): void {
     const payload = packet.payload as { targetMsgId: string }
     this.databaseService.recallMessage(payload.targetMsgId)
-    this.mainWindow.webContents.send('msg:withdrawn', { messageId: payload.targetMsgId })
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:withdrawn', { messageId: payload.targetMsgId })
+    }
   }
 
   private handleStatusChange(packet: UdpPacket): void {
     const user = this.onlineUsers.get(packet.from.userId)
     if (user) {
       user.status = packet.from.status
-      this.mainWindow.webContents.send('user:update', user)
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('user:update', user)
+      }
     }
   }
 
   private handleTyping(packet: UdpPacket): void {
     const payload = packet.payload as { to: string; isTyping: boolean }
     if (payload.to === this.selfUserId) {
-      this.mainWindow.webContents.send('typing:receive', {
-        from: packet.from.userId,
-        fromName: packet.from.nickname,
-        isTyping: payload.isTyping
-      })
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('typing:receive', {
+          from: packet.from.userId,
+          fromName: packet.from.nickname,
+          isTyping: payload.isTyping
+        })
+      }
     }
   }
 
   private broadcastOnline(): void {
+    log.info(`发送上线广播: localIP=${this.localIP}, broadcastAddress=${this.broadcastAddress}`)
     this.sendPacket('ONLINE', {})
   }
 
@@ -345,9 +371,10 @@ export class NetworkService {
 
   private sendPacket(type: PacketType, payload: Record<string, unknown>): void {
     if (!this.udpSocket || !this.broadcastAddress) {
-      log.warn('UDP socket 未就绪或广播地址未设置')
+      log.warn(`UDP socket 未就绪或广播地址未设置: socket=${!!this.udpSocket}, broadcastAddress=${this.broadcastAddress}`)
       return
     }
+    log.debug(`发送包: type=${type}, broadcastAddress=${this.broadcastAddress}`)
 
     const packet: UdpPacket = {
       magic: MAGIC,
@@ -399,16 +426,83 @@ export class NetworkService {
 
   private getLocalIP(): string {
     const interfaces = os.networkInterfaces()
+    const candidates: Array<{ address: string; name: string; cidr?: string | null; priority: number }> = []
+
     for (const name of Object.keys(interfaces)) {
       const iface = interfaces[name]
       if (!iface) continue
+
       for (const info of iface) {
-        // 找到第一个非内部（局域网）的 IPv4 地址
-        if (info.family === 'IPv4' && !info.internal && !info.address.startsWith('169.254')) {
-          return info.address
+        // 跳过内部地址和链路本地地址
+        if (info.family !== 'IPv4' || info.internal || info.address.startsWith('169.254')) {
+          continue
         }
+
+        // 跳过虚拟网卡（Hyper-V, VMware, VirtualBox, Docker, ZeroTier 等）
+        if (/^(vEthernet|VMware|VirtualBox|Docker|ZeroTier|WSL|Tailscale|NordVPN|TAP-Windows)/i.test(name)) {
+          log.debug(`跳过虚拟网卡: ${name} - ${info.address}`)
+          continue
+        }
+
+        // 跳过回环和特定虚拟网段
+        if (info.address.startsWith('127.') ||
+            info.address.startsWith('172.23.') ||  // Hyper-V Default Switch
+            info.address.startsWith('172.24.') ||
+            info.address.startsWith('172.25.') ||
+            info.address.startsWith('172.26.') ||
+            info.address.startsWith('172.27.') ||
+            info.address.startsWith('172.28.') ||
+            info.address.startsWith('172.29.') ||
+            info.address.startsWith('172.30.') ||
+            info.address.startsWith('172.31.')) {
+          log.debug(`跳过虚拟网段: ${name} - ${info.address}`)
+          continue
+        }
+
+        // 跳过 VirtualBox 虚拟网段 192.168.56.x
+        if (info.address.startsWith('192.168.56.')) {
+          log.debug(`跳过 VirtualBox 网段: ${name} - ${info.address}`)
+          continue
+        }
+
+        // 计算优先级（数值越小优先级越高）
+        let priority = 999
+
+        // WLAN (WiFi) 优先级最高
+        if (/WLAN|Wi-Fi|Wireless/i.test(name)) {
+          priority = 1
+        }
+        // 以太网（物理网卡）次之
+        else if (/以太网|Ethernet/i.test(name) && !/VirtualBox|VMware/i.test(name)) {
+          priority = 2
+        }
+        // 其他网卡
+        else {
+          priority = 3
+        }
+
+        candidates.push({ address: info.address, name, cidr: info.cidr, priority })
       }
     }
+
+    // 按优先级排序
+    candidates.sort((a, b) => a.priority - b.priority)
+
+    // 优先选择 192.168.x.x 或 10.x.x.x 网段（家庭/办公网络常用）
+    for (const c of candidates) {
+      if (c.address.startsWith('192.168.') || c.address.startsWith('10.')) {
+        log.info(`选择物理网卡 IP: ${c.address} (${c.name}, 优先级=${c.priority})`)
+        return c.address
+      }
+    }
+
+    // 如果没有找到优先网段，返回第一个候选
+    if (candidates.length > 0) {
+      log.info(`选择网卡 IP: ${candidates[0].address} (${candidates[0].name})`)
+      return candidates[0].address
+    }
+
+    log.warn('未找到合适的网卡，使用 127.0.0.1')
     return '127.0.0.1'
   }
   

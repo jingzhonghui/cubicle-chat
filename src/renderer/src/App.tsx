@@ -3,8 +3,8 @@ import TitleBar from '@components/layout/TitleBar'
 import NavBar from '@components/layout/NavBar'
 import Sidebar from '@components/layout/Sidebar'
 import ChatArea from '@components/layout/ChatArea'
-import { useUserStore } from '@store/userStore'
-import { useMessageStore } from '@store/messageStore'
+import { useUserStore, initUserStoreListeners } from '@store/userStore'
+import { useMessageStore, initMessageStoreListeners } from '@store/messageStore'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -15,10 +15,19 @@ function App(): JSX.Element {
   const { loadConversations, setCurrentConversation } = useMessageStore()
 
   useEffect(() => {
+    // 初始化事件监听
+    const unsubscribeUser = initUserStoreListeners()
+    const unsubscribeMessage = initMessageStoreListeners()
+
     // 初始化加载数据
     loadUserInfo()
     loadOnlineUsers()
     loadConversations()
+
+    return () => {
+      unsubscribeUser()
+      unsubscribeMessage()
+    }
   }, [loadUserInfo, loadOnlineUsers, loadConversations])
 
   const handleNavigate = (page: PageType) => {

@@ -38,6 +38,16 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  // 等待页面加载完成后再初始化服务
+  mainWindow.webContents.on('did-finish-load', () => {
+    log.info('页面加载完成，准备初始化服务...')
+    initServices().then(() => {
+      log.info('服务初始化完成')
+    }).catch((err) => {
+      log.error('服务初始化失败:', err)
+    })
+  })
+
   // 监听窗口最大化状态变化
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window:maximized-change', true)
@@ -245,8 +255,7 @@ app.whenReady().then(async () => {
   // 注册 IPC
   registerIpcHandlers()
 
-  // 初始化服务
-  await initServices()
+  // 服务将在页面加载完成后初始化（在 did-finish-load 事件中）
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

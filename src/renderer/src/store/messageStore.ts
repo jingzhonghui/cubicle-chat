@@ -231,9 +231,17 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   }
 }))
 
-// 初始化事件监听
-if (typeof window !== 'undefined' && window.electronAPI) {
-  window.electronAPI.on('msg:receive', (data: {
+
+
+// 初始化事件监听 - 返回取消订阅函数
+export function initMessageStoreListeners(): () => void {
+  if (typeof window === 'undefined' || !window.electronAPI) {
+    return () => {}
+  }
+
+  console.log('[MessageStore] 初始化事件监听')
+
+  const unsubscribeReceive = window.electronAPI.on('msg:receive', (data: {
     messageId: string
     conversationId: string
     senderId: string
@@ -243,6 +251,8 @@ if (typeof window !== 'undefined' && window.electronAPI) {
     sentAt: number
     isNewConversation?: boolean
   }) => {
+    console.log('[MessageStore] 收到 msg:receive 事件:', data.messageId)
+
     const message: Message = {
       messageId: data.messageId,
       conversationId: data.conversationId,
@@ -258,7 +268,7 @@ if (typeof window !== 'undefined' && window.electronAPI) {
 
     const state = useMessageStore.getState()
     useMessageStore.getState().addMessage(message)
-    
+
     // 如果是新会话且当前不在这个会话中，添加到会话列表
     if (data.isNewConversation) {
       const exists = state.conversations.some(c => c.conversationId === data.conversationId)
@@ -268,27 +278,56 @@ if (typeof window !== 'undefined' && window.electronAPI) {
           type: 'single',
           targetId: data.senderId,
           targetName: data.senderName,
-          unreadCount: 0,
+          lastMessage: data.content,
+          lastMessageAt: data.sentAt,
+          unreadCount: 1,
           isPinned: false,
           isMuted: false
         }
-        set((state) => ({
+        useMessageStore.setState((state) => ({
           conversations: [newConversation, ...state.conversations]
         }))
       }
+    } else {
+      // 更新现有会话的最后消息
+      useMessageStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.conversationId === data.conversationId
+            ? { ...c, lastMessage: data.content, lastMessageAt: data.sentAt, unreadCount: c.unreadCount + 1 }
+            : c
+        )
+      }))
     }
-    
-    // 如果当前正在这个会话中，刷新消息
+
+    // 如果当前正在这个会话中，刷新消息并标记已读
     if (state.currentConversationId === data.conversationId) {
       useMessageStore.getState().loadMessages(data.conversationId)
+      useMessageStore.getState().markAsRead(data.conversationId)
     }
   })
 
-  window.electronAPI.on('msg:ack', (data: { messageId: string }) => {
+  const unsubscribeAck = window.electronAPI.on('msg:ack', (data: { messageId: string }) => {
     useMessageStore.getState().updateMessageStatus(data.messageId, 'delivered')
   })
 
-  window.electronAPI.on('msg:withdrawn', (data: { messageId: string }) => {
+  const unsubscribeWithdrawn = window.electronAPI.on('msg:withdrawn', (data: { messageId: string }) => {
     useMessageStore.getState().updateMessageStatus(data.messageId, 'recalled' as Message['status'])
   })
+
+  const unsubscribeConversationNew = window.electronAPI.on('conversation:new', (conversation: Conversation) => {
+    const state = useMessageStore.getState()
+    const exists = state.conversations.some(c => c.conversationId === conversation.conversationId)
+    if (!exists) {
+      useMessageStore.setState((state) => ({
+        conversations: [conversation, ...state.conversations]
+      }))
+    }
+  })
+
+  return () => {
+    unsubscribeReceive()
+    unsubscribeAck()
+    unsubscribeWithdrawn()
+    unsubscribeConversationNew()
+  }
 }
