@@ -31,6 +31,27 @@ let tray: Tray | null = null
 let networkService: NetworkService | null = null
 let databaseService: DatabaseService | null = null
 
+// 消息提醒相关变量
+let trayFlashTimer: NodeJS.Timeout | null = null
+let isTrayFlashing = false
+let hasUnreadMessages = false
+let originalTrayImage: nativeImage | null = null
+let highlightTrayImage: nativeImage | null = null
+let overlayIcon: nativeImage | null = null
+
+// 任务栏闪烁计时器
+let taskbarFlashTimer: NodeJS.Timeout | null = null
+let isTaskbarFlashing = false
+
+// 请求单实例锁
+const singleInstanceLock = app.requestSingleInstanceLock()
+
+if (!singleInstanceLock) {
+  log.info('应用已经在运行，退出新实例')
+  app.quit()
+  process.exit(0)
+}
+
 // 创建主窗口
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -52,6 +73,16 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  // 当窗口显示时，清除消息提醒
+  mainWindow.on('show', () => {
+    clearNotification()
+  })
+
+  // 当窗口获得焦点时，清除消息提醒
+  mainWindow.on('focus', () => {
+    clearNotification()
   })
 
   // 等待页面加载完成后再初始化服务
@@ -96,6 +127,182 @@ function createWindow(): void {
   log.info('主窗口创建成功')
 }
 
+// 创建任务栏覆盖图标（红色圆点）
+function createNativeOverlayIcon(): nativeImage {
+  // 创建一个简单的红色圆点图标 (16x16)
+  const size = 16
+  // BGRA 格式像素数据
+  const pixels = Buffer.alloc(size * size * 4)
+
+  const centerX = size / 2
+  const centerY = size / 2
+  const radius = size / 2 - 1
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const index = (y * size + x) * 4
+      const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2)
+
+      if (distance <= radius) {
+        // 红色填充
+        pixels[index] = 0     // B
+        pixels[index + 1] = 0 // G
+        pixels[index + 2] = 255 // R
+        pixels[index + 3] = 255 // A
+      } else {
+        // 透明
+        pixels[index] = 0
+        pixels[index + 1] = 0
+        pixels[index + 2] = 0
+        pixels[index + 3] = 0
+      }
+    }
+  }
+
+  return nativeImage.createFromBuffer(pixels, { width: size, height: size })
+}
+
+// 创建纯色高亮图标
+function createColoredTrayIcon(baseIcon: nativeImage, color: string): nativeImage {
+  // 获取图标尺寸
+  const size = baseIcon.getSize()
+
+  // 创建 Buffer 来修改图标颜色
+  const bitmap = baseIcon.toBitmap()
+  const newBitmap = Buffer.from(bitmap)
+
+  // 将颜色转换为 RGB
+  const hex = color.replace('#', '')
+  const r = parseInt(hex.substring(0, 2), 16)
+  const g = parseInt(hex.substring(2, 4), 16)
+  const b = parseInt(hex.substring(4, 6), 16)
+
+  // 修改像素颜色（BGRA 格式）
+  for (let i = 0; i < newBitmap.length; i += 4) {
+    const alpha = newBitmap[i + 3]
+    if (alpha > 128) {
+      newBitmap[i] = b
+      newBitmap[i + 1] = g
+      newBitmap[i + 2] = r
+    }
+  }
+
+  return nativeImage.createFromBuffer(newBitmap, { width: size.width, height: size.height })
+}
+
+// 开始托盘图标闪动
+function startTrayFlash(): void {
+  if (!tray || isTrayFlashing || !originalTrayImage) {
+    return
+  }
+
+  isTrayFlashing = true
+
+  // 创建高亮图标（橙色/红色高亮）
+  if (!highlightTrayImage) {
+    highlightTrayImage = createColoredTrayIcon(originalTrayImage, '#FF6B35')
+  }
+
+  let isHighlight = false
+  trayFlashTimer = setInterval(() => {
+    if (!tray) return
+    tray.setImage(isHighlight ? originalTrayImage : highlightTrayImage!)
+    isHighlight = !isHighlight
+  }, 500) // 每500ms切换一次
+
+  log.info('开始托盘图标闪动')
+}
+
+// 停止托盘图标闪动
+function stopTrayFlash(): void {
+  if (trayFlashTimer) {
+    clearInterval(trayFlashTimer)
+    trayFlashTimer = null
+  }
+
+  isTrayFlashing = false
+
+  // 恢复原始图标
+  if (tray && originalTrayImage) {
+    tray.setImage(originalTrayImage)
+  }
+
+  log.info('停止托盘图标闪动')
+}
+
+// 开始任务栏图标闪烁（红色圆点覆盖层）
+function startTaskbarFlash(): void {
+  if (!mainWindow || isTaskbarFlashing) {
+    return
+  }
+
+  isTaskbarFlashing = true
+
+  // 创建覆盖图标
+  if (!overlayIcon) {
+    overlayIcon = createNativeOverlayIcon()
+  }
+
+  // 立即显示红点
+  mainWindow.setOverlayIcon(overlayIcon, '新消息')
+
+  // 启动闪烁效果（红点/无红点交替）
+  let showOverlay = true
+  taskbarFlashTimer = setInterval(() => {
+    if (!mainWindow) return
+    if (showOverlay) {
+      mainWindow.setOverlayIcon(overlayIcon, '新消息')
+    } else {
+      mainWindow.setOverlayIcon(null, '')
+    }
+    showOverlay = !showOverlay
+  }, 500) // 每500ms闪烁一次
+
+  log.info('开始任务栏图标闪烁')
+}
+
+// 停止任务栏图标闪烁
+function stopTaskbarFlash(): void {
+  if (taskbarFlashTimer) {
+    clearInterval(taskbarFlashTimer)
+    taskbarFlashTimer = null
+  }
+
+  isTaskbarFlashing = false
+
+  // 清除覆盖图标
+  if (mainWindow) {
+    mainWindow.setOverlayIcon(null, '')
+  }
+
+  log.info('停止任务栏图标闪烁')
+}
+
+// 触发新消息提醒
+export function notifyNewMessage(): void {
+  hasUnreadMessages = true
+
+  if (!mainWindow) {
+    return
+  }
+
+  // 如果窗口不可见（被隐藏到托盘），闪动托盘图标
+  if (!mainWindow.isVisible() || mainWindow.isMinimized()) {
+    startTrayFlash()
+  } else {
+    // 窗口可见时，闪烁任务栏图标（红色圆点覆盖层）
+    startTaskbarFlash()
+  }
+}
+
+// 清除消息提醒
+function clearNotification(): void {
+  hasUnreadMessages = false
+  stopTrayFlash()
+  stopTaskbarFlash()
+  log.info('清除消息提醒')
+}
+
 // 创建系统托盘
 function createTray(): void {
   // 根据环境选择图标路径
@@ -103,25 +310,24 @@ function createTray(): void {
     ? join(__dirname, '../../resources/tray.png')
     : join(process.resourcesPath, 'app.asar.unpacked/resources/tray.png')
 
-  let trayIcon: nativeImage
-
   try {
-    trayIcon = nativeImage.createFromPath(iconPath)
+    originalTrayImage = nativeImage.createFromPath(iconPath)
   } catch {
-    trayIcon = nativeImage.createEmpty()
+    originalTrayImage = nativeImage.createEmpty()
   }
 
-  if (trayIcon.isEmpty()) {
+  if (originalTrayImage.isEmpty()) {
     return
   }
 
-  tray = new Tray(trayIcon)
+  tray = new Tray(originalTrayImage)
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '显示 CubicleChat',
       click: () => {
         mainWindow?.show()
+        clearNotification()
       }
     },
     { type: 'separator' },
@@ -139,6 +345,18 @@ function createTray(): void {
 
   tray.on('double-click', () => {
     mainWindow?.show()
+    clearNotification()
+  })
+
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide()
+      } else {
+        mainWindow.show()
+        clearNotification()
+      }
+    }
   })
 
   log.info('系统托盘创建成功')
@@ -152,8 +370,12 @@ async function initServices(): Promise<void> {
     await databaseService.init()
     log.info('数据库初始化成功')
 
-    // 初始化网络服务
-    networkService = new NetworkService(mainWindow!, databaseService)
+    // 初始化网络服务，传入消息通知回调
+    networkService = new NetworkService(mainWindow!, databaseService, {
+      onNewMessage: () => {
+        notifyNewMessage()
+      }
+    })
     await networkService.init()
     log.info('网络服务初始化成功')
   } catch (error) {
@@ -301,6 +523,18 @@ function registerIpcHandlers(): void {
 
   log.info('IPC 处理器注册完成')
 }
+
+// 当第二个实例启动时，聚焦到第一个实例的窗口
+app.on('second-instance', (_, commandLine, workingDirectory) => {
+  log.info('检测到第二个实例启动，聚焦到主窗口')
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore()
+    }
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
 
 // 应用入口
 app.whenReady().then(async () => {

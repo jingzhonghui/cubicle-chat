@@ -66,6 +66,11 @@ const HEARTBEAT_TIMEOUT = 90000 // 90秒
 const MAGIC = 'CCHT'
 const VERSION = 1
 
+// 网络服务回调接口
+export interface NetworkServiceCallbacks {
+  onNewMessage?: () => void
+}
+
 export class NetworkService {
   private udpSocket: dgram.Socket | null = null
   private mainWindow: BrowserWindow
@@ -80,6 +85,8 @@ export class NetworkService {
   private broadcastAddress: string = ''
   private localIP: string = ''
   private tcpPort: number = TCP_PORT
+  private callbacks: NetworkServiceCallbacks
+
   // 待接收的文件请求
   private pendingFileRequests: Map<string, {
     from: OnlineUser
@@ -92,9 +99,10 @@ export class NetworkService {
     timestamp: number
   }> = new Map()
 
-  constructor(mainWindow: BrowserWindow, databaseService: DatabaseService) {
+  constructor(mainWindow: BrowserWindow, databaseService: DatabaseService, callbacks?: NetworkServiceCallbacks) {
     this.mainWindow = mainWindow
     this.databaseService = databaseService
+    this.callbacks = callbacks || {}
 
     // 获取本机用户信息
     const userInfo = this.databaseService.getUserInfo()
@@ -361,6 +369,11 @@ export class NetworkService {
     // 发送 ACK
     this.sendPacket('TEXT_ACK', { ackMsgId: packet.msgId })
 
+    // 触发新消息提醒回调
+    if (this.callbacks.onNewMessage) {
+      this.callbacks.onNewMessage()
+    }
+
     // 通知渲染进程
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send('msg:receive', {
@@ -612,6 +625,11 @@ export class NetworkService {
           sentAt: now,
           isNewConversation
         })
+      }
+
+      // 触发新消息提醒
+      if (this.callbacks.onNewMessage) {
+        this.callbacks.onNewMessage()
       }
     }
 
@@ -995,6 +1013,11 @@ export class NetworkService {
           sentAt: now,
           isNewConversation
         })
+      }
+
+      // 触发新消息提醒
+      if (this.callbacks.onNewMessage) {
+        this.callbacks.onNewMessage()
       }
     }
 
