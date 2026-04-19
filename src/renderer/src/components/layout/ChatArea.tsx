@@ -95,10 +95,20 @@ function ChatHeader({ targetName, targetStatus }: { targetName: string; targetSt
   )
 }
 
+// 预览文件类型
+interface PendingFile {
+  path: string
+  name: string
+  isImage: boolean
+  previewUrl?: string
+}
+
 // 输入框组件
 function MessageInput({ conversationId, disabled, targetId }: { conversationId: string; disabled?: boolean; targetId: string }): JSX.Element {
   const [message, setMessage] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  const [isDragging, setIsDragging] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { sendMessage, sendFileMessage } = useMessageStore()
 
@@ -136,6 +146,135 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
     return imageExtensions.includes(ext)
   }
+
+  // 获取文件图标
+  const getFileIcon = (fileName: string): string => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || ''
+    const iconMap: Record<string, string> = {
+      pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗',
+      ppt: '📙', pptx: '📙', zip: '🗜️', rar: '🗜️', '7z': '🗜️',
+      txt: '📄', mp3: '🎵', wav: '🎵', mp4: '🎬', avi: '🎬',
+      jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', webp: '🖼️', bmp: '🖼️'
+    }
+    return iconMap[ext] || '📄'
+  }
+
+  // 发送单个文件
+  const sendSingleFile = async (filePath: string) => {
+    if (!targetId || !conversationId) return
+
+    const fileName = getFileName(filePath)
+    const isImage = isImageFile(fileName)
+
+    try {
+      // 先添加到本地消息列表（临时消息）
+      const tempFileId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const content = isImage ? `local-resource:///${filePath.replace(/\\/g, '/')}` : fileName
+      await sendFileMessage(conversationId, content, tempFileId, isImage)
+
+      // 然后发送文件
+      const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+
+      if (result?.success && result.transferId) {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
+      } else {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
+      }
+    } catch (error) {
+      console.error('发送文件失败:', error)
+    }
+  }
+
+  // 处理文件列表（拖拽或粘贴）
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    for (const file of Array.from(files)) {
+      try {
+        // 使用 Electron 的 webUtils.getPathForFile 获取文件路径
+        const filePath = window.electronAPI.getFilePath(file)
+        if (filePath) {
+          await sendSingleFile(filePath)
+        }
+      } catch (error) {
+        console.error('获取文件路径失败:', error)
+      }
+    }
+  }
+
+  // 拖拽事件处理
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    if (disabled || !targetId) {
+      alert('请先选择一个聊天对象')
+      return
+    }
+
+    const files = e.dataTransfer.files
+    handleFiles(files)
+  }
+
+  // 粘贴事件处理
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (disabled || !targetId) return
+
+    const items = e.clipboardData.items
+    const files: File[] = []
+
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+
+    if (files.length > 0) {
+      e.preventDefault()
+      // 使用 DataTransfer 创建 FileList
+      const dataTransfer = new DataTransfer()
+      files.forEach(file => dataTransfer.items.add(file))
+      handleFiles(dataTransfer.files)
+    }
+  }
+
+  // 移除待发送文件
+  const removePendingFile = (index: number) => {
+    setPendingFiles(prev => {
+      const newFiles = [...prev]
+      if (newFiles[index]?.previewUrl) {
+        URL.revokeObjectURL(newFiles[index].previewUrl!)
+      }
+      newFiles.splice(index, 1)
+      return newFiles
+    })
+  }
+
+  // 清理预览URL
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach(file => {
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      })
+    }
+  }, [])
 
   // 选择图片
   const handleSelectImage = async () => {
@@ -247,18 +386,36 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         </button>
       </div>
 
+      {/* 拖拽提示遮罩 */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-[var(--accent)]/20 border-2 border-dashed border-[var(--accent)] flex items-center justify-center pointer-events-none">
+          <div className="text-[var(--accent)] text-lg font-medium flex items-center gap-2">
+            <span>📁</span>
+            <span>释放以发送文件</span>
+          </div>
+        </div>
+      )}
+
       {/* 输入框 */}
-      <textarea
-        ref={textareaRef}
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="输入消息，Enter 发送..."
-        disabled={disabled}
-        rows={3}
-        className="w-full px-3 py-2 text-sm text-[var(--text-primary)] bg-transparent outline-none resize-none min-h-[80px] max-h-[160px] overflow-y-auto placeholder-[var(--text-disabled)] font-inherit leading-relaxed"
-        style={{ minHeight: '80px', maxHeight: '160px' }}
-      />
+      <div
+        className="relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <textarea
+          ref={textareaRef}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder="输入消息，Enter 发送；支持拖拽或粘贴文件"
+          disabled={disabled}
+          rows={3}
+          className="w-full px-3 py-2 text-sm text-[var(--text-primary)] bg-transparent outline-none resize-none min-h-[80px] max-h-[160px] overflow-y-auto placeholder-[var(--text-disabled)] font-inherit leading-relaxed"
+          style={{ minHeight: '80px', maxHeight: '160px' }}
+        />
+      </div>
 
       {/* 底部 */}
       <div className="flex items-center justify-end px-3 pb-2 pt-0.5">

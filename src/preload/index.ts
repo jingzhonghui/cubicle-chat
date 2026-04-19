@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 
 // IPC 白名单
 const sendChannels = [
@@ -49,6 +49,7 @@ export interface ElectronAPI {
   invoke: <T = unknown>(channel: string, data?: unknown) => Promise<T>
   on: (channel: string, callback: (...args: unknown[]) => void) => () => void
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void
+  getFilePath: (file: File) => string
 }
 
 export interface UserInfo {
@@ -175,6 +176,10 @@ const electronAPI: ElectronAPI = {
     if (receiveChannels.includes(channel)) {
       ipcRenderer.removeListener(channel, callback as never)
     }
+  },
+
+  getFilePath: (file: File): string => {
+    return webUtils.getPathForFile(file)
   }
 }
 
