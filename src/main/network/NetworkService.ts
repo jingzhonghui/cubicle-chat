@@ -396,7 +396,16 @@ export class NetworkService {
   private handleStatusChange(packet: UdpPacket): void {
     const user = this.onlineUsers.get(packet.from.userId)
     if (user) {
+      // 更新用户信息
+      user.nickname = packet.from.nickname
+      user.avatar = packet.from.avatar
       user.status = packet.from.status
+      user.lastHeartbeat = Date.now()
+      
+      // 保存到数据库
+      this.databaseService.saveUser(user)
+      
+      // 通知渲染进程
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('user:update', user)
       }
@@ -1188,6 +1197,14 @@ export class NetworkService {
   updateStatus(status: UserStatus): void {
     this.selfStatus = status
     this.databaseService.updateUserInfo({ status })
+    this.sendPacket('STATUS_CHANGE', {})
+  }
+
+  async broadcastStatusChange(userInfo: { nickname: string; status: string; avatar?: string }): Promise<void> {
+    // 更新本地缓存
+    this.selfNickname = userInfo.nickname
+    this.selfStatus = userInfo.status as UserStatus
+    // 广播状态变更
     this.sendPacket('STATUS_CHANGE', {})
   }
 

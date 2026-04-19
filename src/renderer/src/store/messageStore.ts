@@ -322,6 +322,23 @@ export function initMessageStoreListeners(): () => void {
 
   console.log('[MessageStore] 初始化事件监听')
 
+  // 监听用户信息更新，同步到会话列表
+  const unsubscribeUserUpdate = window.electronAPI.on('user:update', (data: {
+    userId: string
+    nickname: string
+    avatar?: string
+    status: string
+  }) => {
+    console.log('[MessageStore] 收到 user:update 事件:', data.nickname)
+    useMessageStore.setState((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.targetId === data.userId
+          ? { ...c, targetName: data.nickname, targetAvatar: data.avatar, targetStatus: data.status }
+          : c
+      )
+    }))
+  })
+
   const unsubscribeReceive = window.electronAPI.on('msg:receive', (data: {
     messageId: string
     conversationId: string
@@ -424,6 +441,7 @@ export function initMessageStoreListeners(): () => void {
   })
 
   return () => {
+    unsubscribeUserUpdate()
     unsubscribeReceive()
     unsubscribeAck()
     unsubscribeWithdrawn()

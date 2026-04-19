@@ -3,9 +3,11 @@ import TitleBar from '@components/layout/TitleBar'
 import NavBar from '@components/layout/NavBar'
 import Sidebar from '@components/layout/Sidebar'
 import ChatArea from '@components/layout/ChatArea'
+import SettingsPage from '@components/layout/SettingsPage'
 import { ImageViewer } from '@components/chat/ImageViewer'
 import { useUserStore, initUserStoreListeners } from '@store/userStore'
 import { useMessageStore, initMessageStoreListeners } from '@store/messageStore'
+import { useSettingsStore } from '@store/settingsStore'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -15,6 +17,7 @@ function App(): JSX.Element {
   const [imagePreview, setImagePreview] = useState<{ src: string; fileName?: string } | null>(null)
   const { loadUserInfo, loadOnlineUsers } = useUserStore()
   const { loadConversations, setCurrentConversation, setCurrentPage } = useMessageStore()
+  const { loadSettings } = useSettingsStore()
 
   useEffect(() => {
     // 初始化事件监听
@@ -31,13 +34,14 @@ function App(): JSX.Element {
     loadUserInfo()
     loadOnlineUsers()
     loadConversations()
+    loadSettings()
 
     return () => {
       unsubscribeUser()
       unsubscribeMessage()
       window.removeEventListener('image:preview', handleImagePreview as EventListener)
     }
-  }, [loadUserInfo, loadOnlineUsers, loadConversations])
+  }, [loadUserInfo, loadOnlineUsers, loadConversations, loadSettings])
 
   const handleNavigate = (page: PageType) => {
     setCurrentPageState(page)
@@ -66,19 +70,25 @@ function App(): JSX.Element {
           onNavigate={handleNavigate}
         />
 
-        {/* 会话列表 */}
-        <Sidebar
-          currentPage={currentPage}
-          selectedConversationId={selectedConversationId}
-          onSelectConversation={handleSelectConversation}
-        />
+        {/* 会话列表 - 设置页面时不显示 */}
+        {currentPage !== 'settings' && (
+          <Sidebar
+            currentPage={currentPage}
+            selectedConversationId={selectedConversationId}
+            onSelectConversation={handleSelectConversation}
+          />
+        )}
 
-        {/* 聊天区 */}
-        <ChatArea
-          currentPage={currentPage}
-          selectedConversationId={selectedConversationId}
-          onSelectUser={handleSelectConversation}
-        />
+        {/* 聊天区或设置页面 */}
+        {currentPage === 'settings' ? (
+          <SettingsPage isActive={currentPage === 'settings'} />
+        ) : (
+          <ChatArea
+            currentPage={currentPage}
+            selectedConversationId={selectedConversationId}
+            onSelectUser={handleSelectConversation}
+          />
+        )}
       </div>
 
       {/* 图片查看器 */}

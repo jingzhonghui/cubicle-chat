@@ -411,8 +411,18 @@ function registerIpcHandlers(): void {
     return databaseService?.getUserInfo() ?? null
   })
 
-  ipcMain.handle('user:updateInfo', (_, info) => {
-    return databaseService?.updateUserInfo(info) ?? false
+  ipcMain.handle('user:updateInfo', async (_, info) => {
+    const result = databaseService?.updateUserInfo(info) ?? false
+    if (result && networkService) {
+      // 如果更新了昵称或状态，广播给其他用户
+      if (info.nickname !== undefined || info.status !== undefined || info.avatar !== undefined) {
+        const userInfo = databaseService?.getUserInfo()
+        if (userInfo) {
+          await networkService.broadcastStatusChange(userInfo)
+        }
+      }
+    }
+    return result
   })
 
   // 获取在线用户
@@ -471,10 +481,10 @@ function registerIpcHandlers(): void {
   })
 
   // 文件传输
-  ipcMain.handle('file:select', async () => {
+  ipcMain.handle('file:select', async (_, options?: { isDirectory?: boolean; title?: string }) => {
     const result = await dialog.showOpenDialog(mainWindow!, {
-      properties: ['openFile'],
-      title: '选择要发送的文件'
+      properties: options?.isDirectory ? ['openDirectory'] : ['openFile'],
+      title: options?.title || (options?.isDirectory ? '选择文件夹' : '选择文件')
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null

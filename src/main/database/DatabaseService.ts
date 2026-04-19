@@ -217,6 +217,32 @@ export class DatabaseService {
       this.setSetting('user.nickname', nickname)
       this.setSetting('user.status', 'online')
     }
+
+    // 初始化默认设置
+    this.initDefaultSettings()
+  }
+
+  private initDefaultSettings(): void {
+    const defaults: Record<string, string> = {
+      'user.status': 'online',
+      'storage.retentionDays': '180',
+      'network.udpPort': '2425',
+      'network.tcpPort': '2426',
+      'notification.enabled': 'true',
+      'notification.sound': 'true',
+      'startup.autoLaunch': 'false',
+      'startup.minimized': 'false',
+      'ui.language': 'zh-CN',
+      'ui.theme': 'system',
+      'ui.minimizeToTray': 'true'
+    }
+
+    for (const [key, value] of Object.entries(defaults)) {
+      const existing = this.getSetting(key)
+      if (existing === null) {
+        this.setSetting(key, value)
+      }
+    }
   }
 
   private generateUUID(): string {
@@ -250,6 +276,43 @@ export class DatabaseService {
       this.setSetting('user.status', info.status)
     }
     return true
+  }
+
+  // 批量获取设置
+  getSettings(keys?: string[]): Record<string, string | null> {
+    if (!this.db) return {}
+
+    if (keys && keys.length > 0) {
+      const result: Record<string, string | null> = {}
+      for (const key of keys) {
+        result[key] = this.getSetting(key)
+      }
+      return result
+    }
+
+    // 获取所有设置
+    const stmt = this.db.prepare('SELECT key, value FROM settings')
+    const rows = stmt.all() as Array<{ key: string; value: string }>
+    const result: Record<string, string | null> = {}
+    for (const row of rows) {
+      result[row.key] = row.value
+    }
+    return result
+  }
+
+  // 批量设置
+  setSettings(settings: Record<string, string>): boolean {
+    if (!this.db) return false
+
+    try {
+      for (const [key, value] of Object.entries(settings)) {
+        this.setSetting(key, value)
+      }
+      return true
+    } catch (error) {
+      log.error('批量设置失败:', error)
+      return false
+    }
   }
 
   saveUser(user: OnlineUser): void {
@@ -767,6 +830,18 @@ export class DatabaseService {
 
     const stmt = this.db.prepare('UPDATE files SET file_path = ? WHERE file_id = ?')
     stmt.run(filePath, fileId)
+  }
+
+  // 更新会话目标用户信息（当用户昵称/头像/状态变更时调用）
+  updateConversationTargetInfo(userId: string, nickname: string, avatar?: string, status?: string): void {
+    if (!this.db) return
+
+    const stmt = this.db.prepare(`
+      UPDATE conversations 
+      SET updated_at = ?
+      WHERE target_id = ? AND type = 'single'
+    `)
+    stmt.run(Date.now(), userId)
   }
 
   deleteFile(fileId: string): void {
