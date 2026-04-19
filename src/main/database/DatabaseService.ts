@@ -641,6 +641,60 @@ export class DatabaseService {
     stmt.run(messageId)
   }
 
+  searchMessages(keyword: string, conversationId?: string, limit = 50): Message[] {
+    if (!this.db || !keyword.trim()) return []
+
+    const searchPattern = `%${keyword.trim()}%`
+    let sql = `
+      SELECT m.*, u.nickname as sender_name
+      FROM messages m
+      LEFT JOIN users u ON m.sender_id = u.user_id
+      WHERE m.content LIKE ? AND m.content_type NOT IN ('recall', 'system')
+    `
+    const params: unknown[] = [searchPattern]
+
+    if (conversationId) {
+      sql += ` AND m.conversation_id = ?`
+      params.push(conversationId)
+    }
+
+    sql += ` ORDER BY m.sent_at DESC LIMIT ?`
+    params.push(limit)
+
+    const stmt = this.db.prepare(sql)
+    const rows = stmt.all(...params) as Array<{
+      message_id: string
+      conversation_id: string
+      sender_id: string
+      sender_name: string
+      content_type: string
+      content: string
+      file_id: string
+      reply_to_id: string
+      status: string
+      is_recalled: number
+      sent_at: number
+      delivered_at: number
+      created_at: number
+    }>
+
+    return rows.map((row) => ({
+      messageId: row.message_id,
+      conversationId: row.conversation_id,
+      senderId: row.sender_id,
+      senderName: row.sender_name,
+      contentType: row.content_type as Message['contentType'],
+      content: row.content,
+      fileId: row.file_id,
+      replyToId: row.reply_to_id,
+      status: row.status as Message['status'],
+      isRecalled: Boolean(row.is_recalled),
+      sentAt: row.sent_at,
+      deliveredAt: row.delivered_at,
+      createdAt: row.created_at
+    }))
+  }
+
   // 设置相关
   getSetting(key: string): string | null {
     if (!this.db) return null

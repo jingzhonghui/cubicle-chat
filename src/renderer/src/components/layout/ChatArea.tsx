@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMessageStore } from '@store/messageStore'
+import { useMessageStore, Message } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import MessageBubble from '@components/chat/MessageBubble'
 
@@ -51,7 +51,7 @@ function SelectUserHint(): JSX.Element {
 }
 
 // 聊天头组件
-function ChatHeader({ targetName, targetStatus }: { targetName: string; targetStatus?: string }): JSX.Element {
+function ChatHeader({ targetName, targetStatus, onSearchClick }: { targetName: string; targetStatus?: string; onSearchClick?: () => void }): JSX.Element {
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = targetName.charCodeAt(0) % colors.length
 
@@ -84,12 +84,127 @@ function ChatHeader({ targetName, targetStatus }: { targetName: string; targetSt
         </div>
       </div>
       <div className="flex gap-1">
-        <button className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer" title="搜索消息">
+        <button
+          onClick={onSearchClick}
+          className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          title="搜索消息"
+        >
           🔍
         </button>
-        <button className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer" title="更多操作">
-          ⋯
+      </div>
+    </div>
+  )
+}
+
+// 搜索面板组件
+function SearchPanel({ conversationId, onClose }: { conversationId: string; onClose: () => void }): JSX.Element {
+  const [keyword, setKeyword] = useState('')
+  const [results, setResults] = useState<Message[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const { searchMessages } = useMessageStore()
+  const { userInfo } = useUserStore()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const handleSearch = async () => {
+    if (!keyword.trim()) {
+      setResults([])
+      return
+    }
+    setIsSearching(true)
+    try {
+      const searchResults = await searchMessages(keyword.trim(), conversationId)
+      setResults(searchResults)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch()
+    } else if (e.key === 'Escape') {
+      onClose()
+    }
+  }
+
+  const formatTime = (timestamp: number): string => {
+    const date = new Date(timestamp)
+    return date.toLocaleString('zh-CN', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  return (
+    <div className="absolute inset-0 z-50 bg-[var(--bg-base)] flex flex-col">
+      <div className="h-12 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center px-4 gap-2 flex-shrink-0">
+        <div className="flex items-center bg-[var(--bg-base)] rounded-md px-2 py-1 flex-1">
+          <span className="text-[var(--text-secondary)] mr-2">🔍</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleSearch}
+            placeholder="搜索消息..."
+            className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder-[var(--text-disabled)]"
+          />
+        </div>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] transition-colors border-none bg-transparent cursor-pointer"
+        >
+          ✕
         </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {isSearching ? (
+          <div className="flex items-center justify-center h-20 text-[var(--text-secondary)]">
+            搜索中...
+          </div>
+        ) : results.length === 0 ? (
+          keyword.trim() ? (
+            <div className="flex items-center justify-center h-20 text-[var(--text-secondary)]">
+              未找到相关消息
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-20 text-[var(--text-disabled)]">
+              输入关键词搜索消息
+            </div>
+          )
+        ) : (
+          <div className="flex flex-col gap-2">
+            {results.map((msg) => {
+              const isSelf = msg.senderId === userInfo?.userId
+              return (
+                <div
+                  key={msg.messageId}
+                  className="p-2 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] hover:border-[var(--accent)] cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-medium ${isSelf ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
+                      {isSelf ? '我' : msg.senderName}
+                    </span>
+                    <span className="text-xs text-[var(--text-disabled)]">
+                      {formatTime(msg.sentAt)}
+                    </span>
+                  </div>
+                  <div className="text-sm text-[var(--text-primary)] line-clamp-2">
+                    {msg.content}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -431,6 +546,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   const { conversations, messages } = useMessageStore()
   const { userInfo } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [showSearch, setShowSearch] = useState(false)
 
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
@@ -439,6 +555,11 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 关闭搜索面板时重置状态
+  const handleCloseSearch = () => {
+    setShowSearch(false)
+  }
 
   // 根据页面和会话状态显示不同内容
   if (currentPage !== 'chat') {
@@ -457,6 +578,15 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
     return (
       <div className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-base)]">
         <SelectUserHint />
+      </div>
+    )
+  }
+
+  // 显示搜索面板
+  if (showSearch) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-base)] relative">
+        <SearchPanel conversationId={selectedConversationId} onClose={handleCloseSearch} />
       </div>
     )
   }
@@ -533,6 +663,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       <ChatHeader
         targetName={currentConversation.targetName}
         targetStatus={currentConversation.targetStatus}
+        onSearchClick={() => setShowSearch(true)}
       />
 
       {/* 消息列表 */}

@@ -52,6 +52,7 @@ interface MessageStore {
   createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
   deleteConversation: (conversationId: string) => Promise<void>
   markAsRead: (conversationId: string) => void
+  searchMessages: (keyword: string, conversationId?: string, limit?: number) => Promise<Message[]>
 }
 
 export const useMessageStore = create<MessageStore>((set, get) => ({
@@ -293,6 +294,20 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
         c.conversationId === conversationId ? { ...c, unreadCount: 0 } : c
       )
     }))
+  },
+
+  searchMessages: async (keyword: string, conversationId?: string, limit = 50) => {
+    try {
+      const results = await window.electronAPI.invoke<Message[]>('message:search', {
+        keyword,
+        conversationId,
+        limit
+      }) || []
+      return results
+    } catch (error) {
+      console.error('搜索消息失败:', error)
+      return []
+    }
   },
 
   deleteConversation: async (conversationId: string) => {

@@ -460,6 +460,11 @@ function registerIpcHandlers(): void {
     return databaseService?.getMessageHistory(data.conversationId, data.limit, data.before) ?? []
   })
 
+  // 搜索消息
+  ipcMain.handle('message:search', (_, data) => {
+    return databaseService?.searchMessages(data.keyword, data.conversationId, data.limit) ?? []
+  })
+
   // 发送消息
   ipcMain.handle('message:send', async (_, data) => {
     const result = await networkService?.sendMessage(data)
