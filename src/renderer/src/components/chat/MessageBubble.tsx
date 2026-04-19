@@ -285,25 +285,43 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
           </div>
         </div>
 
-        {/* 传输进度 */}
-        {status === 'transferring' && (
+        {/* 传输进度 - 渐变色进度条 */}
+        {(status === 'transferring' || status === 'pending') && (
           <div className="mt-2">
             <div className="flex justify-between text-[11px] mb-1">
-              <span className="opacity-70">{progress}%</span>
-              <span className="opacity-70">{formatSpeed(speed)}</span>
+              <span className="opacity-70">{status === 'pending' ? '等待发送...' : `${progress}%`}</span>
+              {status === 'transferring' && <span className="opacity-70">{formatSpeed(speed)}</span>}
             </div>
-            <div className="h-1 rounded-full overflow-hidden" style={{ background: isSelf ? 'rgba(255,255,255,0.3)' : 'var(--bg-base)' }}>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: isSelf ? 'rgba(255,255,255,0.2)' : 'var(--bg-base)' }}>
               <div
-                className="h-full transition-all duration-300"
-                style={{ width: `${progress}%`, background: isSelf ? 'white' : 'var(--accent)' }}
+                className="h-full transition-all duration-300 rounded-full"
+                style={{
+                  width: `${status === 'pending' ? 0 : progress}%`,
+                  background: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)',
+                  boxShadow: '0 0 4px rgba(16, 185, 129, 0.5)'
+                }}
               />
             </div>
           </div>
         )}
 
-        {/* 完成状态 */}
+        {/* 完成状态 - 绿色进度条 */}
         {status === 'completed' && (
-          <div className="h-px my-2" style={{ background: isSelf ? 'rgba(255,255,255,0.2)' : 'var(--border)' }} />
+          <div className="mt-2">
+            <div className="flex justify-between text-[11px] mb-1">
+              <span style={{ color: '#10b981' }}>✓ 传输完成</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: isSelf ? 'rgba(255,255,255,0.2)' : 'var(--bg-base)' }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)',
+                  boxShadow: '0 0 4px rgba(16, 185, 129, 0.5)'
+                }}
+              />
+            </div>
+          </div>
         )}
 
         {/* 接收端显示打开文件夹按钮，发送端不显示 */}
@@ -319,17 +337,22 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
           </div>
         )}
 
-        {/* 失败状态 */}
+        {/* 失败状态 - 显示红色进度条 */}
         {status === 'failed' && (
-          <div className="mt-2 text-[12px]" style={{ color: isSelf ? '#ffcccc' : 'var(--error)' }}>
-            传输失败
-          </div>
-        )}
-
-        {/* 等待接受状态 */}
-        {status === 'pending' && (
-          <div className="mt-2 text-[12px] opacity-70">
-            等待对方接受...
+          <div className="mt-2">
+            <div className="flex justify-between text-[11px] mb-1">
+              <span style={{ color: isSelf ? '#ffcccc' : 'var(--error)' }}>✗ 传输失败</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: isSelf ? 'rgba(255,255,255,0.2)' : 'var(--bg-base)' }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(90deg, #ef4444 0%, #f87171 50%, #fca5a5 100%)',
+                  boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)'
+                }}
+              />
+            </div>
           </div>
         )}
       </div>
