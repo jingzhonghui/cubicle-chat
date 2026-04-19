@@ -487,16 +487,6 @@ function registerIpcHandlers(): void {
     return result ?? { success: false, error: '网络服务未初始化' }
   })
 
-  ipcMain.handle('file:accept', async (_, data: { transferId: string }) => {
-    const result = await networkService?.acceptFile(data.transferId)
-    return result ?? { success: false, error: '网络服务未初始化' }
-  })
-
-  ipcMain.handle('file:reject', async (_, data: { transferId: string; reason?: string }) => {
-    await networkService?.rejectFile(data.transferId, data.reason)
-    return true
-  })
-
   ipcMain.handle('file:get', async (_, data: { fileId: string }) => {
     return databaseService?.getFile(data.fileId) ?? null
   })

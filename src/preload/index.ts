@@ -21,8 +21,6 @@ const invokeChannels = [
   'settings:get',
   'settings:set',
   'file:send',
-  'file:accept',
-  'file:reject',
   'file:select',
   'file:get',
   'file:getList',
@@ -40,8 +38,6 @@ const receiveChannels = [
   'msg:withdrawn',
   'file:progress',
   'file:complete',
-  'file:receive-request',
-  'file:rejected',
   'file:send-start',
   'typing:receive',
   'conversation:new'

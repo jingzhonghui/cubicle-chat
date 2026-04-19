@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react'
 import { useMessageStore } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import MessageBubble from '@components/chat/MessageBubble'
-import FileReceiveModal, { useFileReceiveRequests } from '@components/chat/FileReceiveModal'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -276,9 +275,6 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   const { userInfo } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // 文件接收请求
-  const { pendingRequest, acceptFile, rejectFile, closeModal } = useFileReceiveRequests()
-
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
 
@@ -392,14 +388,6 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       <MessageInput
         conversationId={selectedConversationId}
         targetId={currentConversation.targetId}
-      />
-
-      {/* 文件接收弹窗 */}
-      <FileReceiveModal
-        request={pendingRequest}
-        onAccept={acceptFile}
-        onReject={rejectFile}
-        onClose={closeModal}
       />
     </div>
   )

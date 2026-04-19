@@ -20,7 +20,6 @@ export type PacketType =
   | 'WITHDRAW'
   | 'FILE_NOTIFY'
   | 'FILE_ACCEPT'
-  | 'FILE_REJECT'
   | 'GROUP_CREATE'
   | 'GROUP_MESSAGE'
   | 'GROUP_LEAVE'
@@ -86,18 +85,6 @@ export class NetworkService {
   private localIP: string = ''
   private tcpPort: number = TCP_PORT
   private callbacks: NetworkServiceCallbacks
-
-  // 待接收的文件请求
-  private pendingFileRequests: Map<string, {
-    from: OnlineUser
-    fileName: string
-    fileSize: number
-    fileMd5: string
-    mimeType: string
-    isImage: boolean
-    thumbnailData?: string
-    timestamp: number
-  }> = new Map()
 
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService, callbacks?: NetworkServiceCallbacks) {
     this.mainWindow = mainWindow
@@ -259,9 +246,6 @@ export class NetworkService {
           break
         case 'FILE_ACCEPT':
           this.handleFileAccept(packet)
-          break
-        case 'FILE_REJECT':
-          this.handleFileReject(packet)
           break
       }
     } catch (error) {
@@ -452,56 +436,12 @@ export class NetworkService {
 
     log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}, isImage=${payload.isImage}`)
 
-    // 图片自动接受，无需确认
-    if (payload.isImage) {
-      log.info(`图片自动接受: ${payload.fileName}`)
-      this.autoAcceptImage(packet, payload)
-      return
-    }
-
-    // 非图片文件需要确认
-    // 存储待接收的文件请求
-    this.pendingFileRequests.set(payload.transferId, {
-      from: {
-        userId: packet.from.userId,
-        nickname: packet.from.nickname,
-        ip: packet.from.ip,
-        port: packet.from.port,
-        avatar: packet.from.avatar,
-        status: packet.from.status,
-        lastHeartbeat: Date.now(),
-        version: packet.from.version
-      },
-      fileName: payload.fileName,
-      fileSize: payload.fileSize,
-      fileMd5: payload.fileMd5,
-      mimeType: payload.fileType,
-      isImage: payload.isImage,
-      thumbnailData: payload.thumbnailData,
-      timestamp: Date.now()
-    })
-
-    // 通知渲染进程显示文件接收确认框
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('file:receive-request', {
-        transferId: payload.transferId,
-        fileName: payload.fileName,
-        fileSize: payload.fileSize,
-        fileMd5: payload.fileMd5,
-        mimeType: payload.fileType,
-        isImage: payload.isImage,
-        thumbnailData: payload.thumbnailData,
-        fromUserId: packet.from.userId,
-        fromNickname: packet.from.nickname,
-        fromAvatar: packet.from.avatar,
-        peerIp: packet.from.ip,
-        tcpPort: packet.from.port || TCP_PORT
-      })
-    }
+    // 自动接受文件，无需确认
+    this.autoAcceptFile(packet, payload)
   }
 
-  // 自动接受图片
-  private async autoAcceptImage(packet: UdpPacket, payload: {
+  // 自动接受文件
+  private async autoAcceptFile(packet: UdpPacket, payload: {
     to: string
     transferId: string
     fileName: string
@@ -657,7 +597,7 @@ export class NetworkService {
     // 单播发送到对方
     this.sendPacketTo(packetResponse, from.ip)
 
-    log.info(`图片自动接受已发送 FILE_ACCEPT: ${payload.transferId}`)
+    log.info(`文件自动接受已发送确认: ${payload.transferId}`)
   }
 
   private handleFileAccept(packet: UdpPacket): void {
@@ -667,34 +607,10 @@ export class NetworkService {
       tcpPort?: number
     }
 
-    log.info(`对方接受了文件传输: ${payload.transferId}, offset: ${payload.offset || 0}, tcpPort: ${payload.tcpPort}`)
+    log.info(`对方接受了文件传输: ${payload.transferId}, tcpPort: ${payload.tcpPort}`)
 
     // 开始发送文件
     this.startFileSend(payload.transferId, payload.offset || 0, payload.tcpPort)
-  }
-
-  private handleFileReject(packet: UdpPacket): void {
-    const payload = packet.payload as {
-      transferId: string
-      reason?: string
-    }
-
-    log.info(`对方拒绝了文件传输: ${payload.transferId}, 原因: ${payload.reason}`)
-
-    // 更新传输状态
-    const transfer = this.tcpTransferService?.getTransfer(payload.transferId)
-    if (transfer) {
-      transfer.status = 'rejected'
-      this.databaseService.updateFileStatus(payload.transferId, 'rejected')
-    }
-
-    // 通知渲染进程
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('file:rejected', {
-        transferId: payload.transferId,
-        reason: payload.reason
-      })
-    }
   }
 
   // 格式化文件大小
@@ -907,182 +823,6 @@ export class NetworkService {
       log.error(`文件发送失败: ${error}`)
       this.databaseService.updateFileStatus(transferId, 'failed')
     }
-  }
-
-  // 接受文件传输
-  async acceptFile(transferId: string): Promise<{ success: boolean; error?: string }> {
-    log.info(`接受文件传输: ${transferId}`)
-    
-    const request = this.pendingFileRequests.get(transferId)
-    if (!request) {
-      log.error(`文件请求已过期: ${transferId}`)
-      return { success: false, error: '文件请求已过期' }
-    }
-
-    const { from, fileName, fileSize, fileMd5, mimeType, isImage, thumbnailData } = request
-    log.info(`准备接收文件: ${fileName} (${fileSize} bytes) from ${from.nickname} (${from.ip})`)
-
-    // 保存文件记录到数据库
-    const downloadPath = this.databaseService.getDownloadPath()
-    const filePath = path.join(downloadPath, `${Date.now()}_${fileName}`)
-    log.info(`文件保存路径: ${filePath}`)
-
-    const fileRecord: FileRecord = {
-      fileId: transferId,
-      fileName,
-      filePath,
-      fileSize,
-      mimeType,
-      fileMd5,
-      direction: 'receive',
-      peerId: from.userId,
-      status: 'pending',
-      transferredBytes: 0,
-      isImage,
-      thumbnailData,
-      createdAt: Date.now()
-    }
-    this.databaseService.saveFile(fileRecord)
-
-    // 创建传输记录
-    const transfer: FileTransfer = {
-      transferId,
-      fileName,
-      filePath,
-      fileSize,
-      fileMd5,
-      mimeType,
-      direction: 'receive',
-      peerId: from.userId,
-      peerIp: from.ip,
-      status: 'pending',
-      transferredBytes: 0,
-      isImage,
-      thumbnailData,
-      progress: 0,
-      speed: 0,
-      startTime: Date.now()
-    }
-    this.tcpTransferService?.addTransfer(transfer)
-    log.info(`传输记录已添加: ${transferId}`)
-
-    // 查找或创建会话
-    let conversation = this.databaseService.getConversationByTarget(from.userId, 'single')
-    let isNewConversation = false
-    if (!conversation) {
-      conversation = this.databaseService.createConversation({
-        type: 'single',
-        targetId: from.userId,
-        targetInfo: {
-          nickname: from.nickname,
-          avatar: from.avatar,
-          status: from.status
-        }
-      })
-      isNewConversation = !!conversation
-    }
-
-    if (conversation) {
-      // 生成消息 ID
-      const messageId = uuidv4()
-      const now = Date.now()
-
-      // 保存消息到数据库
-      this.databaseService.saveMessage({
-        messageId,
-        conversationId: conversation.conversationId,
-        senderId: from.userId,
-        contentType: isImage ? 'image' : 'file',
-        content: fileName,
-        fileId: transferId
-      })
-
-      // 更新会话的最后消息
-      this.databaseService.updateConversationLastMessage(conversation.conversationId, messageId, now)
-
-      // 发送通知到渲染进程
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('msg:receive', {
-          messageId,
-          conversationId: conversation.conversationId,
-          senderId: from.userId,
-          senderName: from.nickname,
-          contentType: isImage ? 'image' : 'file',
-          content: fileName,
-          fileId: transferId,
-          sentAt: now,
-          isNewConversation
-        })
-      }
-
-      // 触发新消息提醒
-      if (this.callbacks.onNewMessage) {
-        this.callbacks.onNewMessage()
-      }
-    }
-
-    // 发送 FILE_ACCEPT，包含本机 TCP 端口供发送方连接
-    const packet: UdpPacket = {
-      magic: MAGIC,
-      version: VERSION,
-      type: 'FILE_ACCEPT',
-      msgId: uuidv4(),
-      timestamp: Date.now(),
-      from: {
-        userId: this.selfUserId,
-        nickname: this.selfNickname,
-        ip: this.localIP || this.getLocalIP(),
-        port: this.tcpPort,
-        status: this.selfStatus,
-        version: app.getVersion()
-      },
-      payload: { 
-        transferId,
-        tcpPort: this.tcpPort  // 告诉发送方应该连接哪个 TCP 端口
-      }
-    }
-
-    // 单播发送到对方
-    this.sendPacketTo(packet, from.ip)
-
-    // 从待处理列表移除
-    this.pendingFileRequests.delete(transferId)
-
-    return { success: true }
-  }
-
-  // 拒绝文件传输
-  async rejectFile(transferId: string, reason?: string): Promise<void> {
-    const request = this.pendingFileRequests.get(transferId)
-    if (!request) {
-      return
-    }
-
-    // 发送 FILE_REJECT
-    const packet: UdpPacket = {
-      magic: MAGIC,
-      version: VERSION,
-      type: 'FILE_REJECT',
-      msgId: uuidv4(),
-      timestamp: Date.now(),
-      from: {
-        userId: this.selfUserId,
-        nickname: this.selfNickname,
-        ip: this.localIP || this.getLocalIP(),
-        port: this.tcpPort,
-        status: this.selfStatus,
-        version: app.getVersion()
-      },
-      payload: { transferId, reason }
-    }
-
-    // 单播发送到对方
-    this.sendPacketTo(packet, request.from.ip)
-
-    // 从待处理列表移除
-    this.pendingFileRequests.delete(transferId)
-
-    log.info(`已拒绝文件传输: ${transferId}`)
   }
 
   // 单播发送数据包
