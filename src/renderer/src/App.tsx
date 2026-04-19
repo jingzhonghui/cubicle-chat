@@ -4,6 +4,7 @@ import NavBar from '@components/layout/NavBar'
 import Sidebar from '@components/layout/Sidebar'
 import ChatArea from '@components/layout/ChatArea'
 import SettingsPage from '@components/layout/SettingsPage'
+import FileRecordsPage from '@components/layout/FileRecordsPage'
 import { ImageViewer } from '@components/chat/ImageViewer'
 import { useUserStore, initUserStoreListeners } from '@store/userStore'
 import { useMessageStore, initMessageStoreListeners } from '@store/messageStore'
@@ -72,8 +73,8 @@ function App(): JSX.Element {
           onNavigate={handleNavigate}
         />
 
-        {/* 会话列表 - 设置页面时不显示 */}
-        {currentPage !== 'settings' && (
+        {/* 会话列表 - 设置页面或文件传输记录页面时不显示 */}
+        {currentPage !== 'settings' && currentPage !== 'files' && (
           <Sidebar
             currentPage={currentPage}
             selectedConversationId={selectedConversationId}
@@ -81,9 +82,11 @@ function App(): JSX.Element {
           />
         )}
 
-        {/* 聊天区或设置页面 */}
+        {/* 聊天区、设置页面或文件传输记录页面 */}
         {currentPage === 'settings' ? (
           <SettingsPage isActive={currentPage === 'settings'} />
+        ) : currentPage === 'files' ? (
+          <FileRecordsPage isActive={currentPage === 'files'} />
         ) : (
           <ChatArea
             currentPage={currentPage}

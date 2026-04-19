@@ -74,7 +74,7 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)]'
             }
           `}
-          title={page === 'chat' ? '会话列表' : page === 'users' ? `联系人 (${onlineCount}人在线)` : page === 'files' ? '文件传输' : '设置'}
+          title={page === 'chat' ? '会话列表' : page === 'users' ? `联系人 (${onlineCount}人在线)` : page === 'files' ? '文件传输记录' : '设置'}
         >
           <NavIcon
             type={page}
