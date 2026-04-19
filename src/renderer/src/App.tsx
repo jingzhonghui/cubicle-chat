@@ -17,7 +17,7 @@ function App(): JSX.Element {
   const [imagePreview, setImagePreview] = useState<{ src: string; fileName?: string } | null>(null)
   const { loadUserInfo, loadOnlineUsers } = useUserStore()
   const { loadConversations, setCurrentConversation, setCurrentPage } = useMessageStore()
-  const { loadSettings } = useSettingsStore()
+  const { loadSettings, applyTheme } = useSettingsStore()
 
   useEffect(() => {
     // 初始化事件监听
@@ -34,14 +34,16 @@ function App(): JSX.Element {
     loadUserInfo()
     loadOnlineUsers()
     loadConversations()
-    loadSettings()
+    loadSettings().then(() => {
+      applyTheme()
+    })
 
     return () => {
       unsubscribeUser()
       unsubscribeMessage()
       window.removeEventListener('image:preview', handleImagePreview as EventListener)
     }
-  }, [loadUserInfo, loadOnlineUsers, loadConversations, loadSettings])
+  }, [loadUserInfo, loadOnlineUsers, loadConversations, loadSettings, applyTheme])
 
   const handleNavigate = (page: PageType) => {
     setCurrentPageState(page)

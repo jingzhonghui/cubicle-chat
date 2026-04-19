@@ -311,7 +311,7 @@ function AvatarUpload({
 }
 
 function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
-  const { settings, loadSettings, setSetting, setSettings, isLoading } = useSettingsStore()
+  const { settings, loadSettings, setSetting, setSettings, isLoading, applyTheme } = useSettingsStore()
   const { userInfo, updateUserInfo } = useUserStore()
   const [activeSection, setActiveSection] = useState('profile')
   const [localNickname, setLocalNickname] = useState('')
@@ -631,7 +631,10 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
                         { value: 'dark', label: '暗色', icon: '🌙' },
                         { value: 'system', label: '跟随系统', icon: '🖥️' }
                       ]}
-                      onChange={(value) => setSetting('ui.theme', value)}
+                      onChange={async (value) => {
+                        await setSetting('ui.theme', value)
+                        applyTheme()
+                      }}
                       description="选择应用界面主题"
                     />
                   </SettingGroup>

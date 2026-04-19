@@ -650,11 +650,14 @@ export class DatabaseService {
     return row?.value || null
   }
 
-  setSetting(key: string, value: string): boolean {
+  setSetting(key: string, value: string | null | undefined): boolean {
     if (!this.db) return false
 
+    // 处理空值，确保不会违反 NOT NULL 约束
+    const safeValue = (value === null || value === undefined) ? '' : String(value)
+    
     const stmt = this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-    stmt.run(key, value)
+    stmt.run(key, safeValue)
     return true
   }
 
