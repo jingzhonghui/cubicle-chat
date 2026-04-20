@@ -74,7 +74,7 @@ coverage/
 *.temp
 .cache/
 
-# Lock files (use pnpm-lock.yaml only)
-package-lock.json
+# Lock files
+# package-lock.json is needed for GitHub Actions
 yarn.lock
 
