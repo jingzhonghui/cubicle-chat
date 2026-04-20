@@ -53,15 +53,19 @@ export const useUserStore = create<UserStore>((set, get) => ({
     }
   },
 
-  updateUserInfo: async (info: Partial<UserInfo>) => {
+  updateUserInfo: async (info: Partial<UserInfo>): Promise<boolean> => {
     try {
-      await window.electronAPI.invoke<boolean>('user:updateInfo', info)
-      const currentInfo = get().userInfo
-      if (currentInfo) {
-        set({ userInfo: { ...currentInfo, ...info } })
+      const result = await window.electronAPI.invoke<boolean>('user:updateInfo', info)
+      if (result) {
+        const currentInfo = get().userInfo
+        if (currentInfo) {
+          set({ userInfo: { ...currentInfo, ...info } })
+        }
       }
+      return result
     } catch (error) {
       console.error('更新用户信息失败:', error)
+      return false
     }
   },
 

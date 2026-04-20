@@ -345,9 +345,14 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
     if (!value.trim()) return
     setSaveStatus('saving')
     try {
-      await updateUserInfo({ nickname: value.trim() })
-      await setSetting('user.nickname', value.trim())
-      setSaveStatus('saved')
+      const result = await updateUserInfo({ nickname: value.trim() })
+      if (result) {
+        setSaveStatus('saved')
+        // 同时更新 settings store 中的值
+        await setSetting('user.nickname', value.trim())
+      } else {
+        setSaveStatus('error')
+      }
       setTimeout(() => setSaveStatus('idle'), 2000)
     } catch (error) {
       console.error('保存昵称失败:', error)
@@ -357,8 +362,10 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
 
   const handleStatusChange = async (status: UserStatus) => {
     try {
-      await updateUserInfo({ status })
-      await setSetting('user.status', status)
+      const result = await updateUserInfo({ status })
+      if (result) {
+        await setSetting('user.status', status)
+      }
     } catch (error) {
       console.error('保存状态失败:', error)
     }
@@ -366,8 +373,10 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
 
   const handleAvatarChange = async (avatar: string) => {
     try {
-      await updateUserInfo({ avatar })
-      await setSetting('user.avatar', avatar)
+      const result = await updateUserInfo({ avatar })
+      if (result) {
+        await setSetting('user.avatar', avatar)
+      }
     } catch (error) {
       console.error('保存头像失败:', error)
     }

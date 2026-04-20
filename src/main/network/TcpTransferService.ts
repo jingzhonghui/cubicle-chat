@@ -4,7 +4,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
-import { app } from 'electron'
+import type { DatabaseService } from '../database/DatabaseService'
 
 // TCP 端口范围
 const TCP_PORT_START = 2426
@@ -61,6 +61,7 @@ interface TcpFrame {
 
 export class TcpTransferService {
   private mainWindow: BrowserWindow
+  private databaseService: DatabaseService | null = null
   private server: net.Server | null = null
   private serverPort: number = TCP_PORT_START
   private transfers: Map<string, FileTransfer> = new Map()
@@ -68,8 +69,9 @@ export class TcpTransferService {
   private onProgress: ProgressCallback | null = null
   private onComplete: CompleteCallback | null = null
 
-  constructor(mainWindow: BrowserWindow) {
+  constructor(mainWindow: BrowserWindow, databaseService?: DatabaseService) {
     this.mainWindow = mainWindow
+    this.databaseService = databaseService || null
   }
 
   setCallbacks(onProgress: ProgressCallback, onComplete: CompleteCallback): void {
@@ -625,15 +627,20 @@ export class TcpTransferService {
 
   // 获取下载目录
   getDownloadPath(): string {
-    const downloadPath = app.getPath('downloads')
-    const cubicleChatPath = path.join(downloadPath, 'CubicleChat')
-    
-    // 确保目录存在
-    if (!fs.existsSync(cubicleChatPath)) {
-      fs.mkdirSync(cubicleChatPath, { recursive: true })
+    // 优先使用 databaseService 获取路径（支持自定义设置）
+    if (this.databaseService) {
+      return this.databaseService.getDownloadPath()
     }
     
-    return cubicleChatPath
+    // 兜底方案：使用默认路径
+    const downloadPath = path.join(require('electron').app.getPath('downloads'), 'CubicleChat')
+    
+    // 确保目录存在
+    if (!fs.existsSync(downloadPath)) {
+      fs.mkdirSync(downloadPath, { recursive: true })
+    }
+    
+    return downloadPath
   }
 
   // 清理已完成的传输

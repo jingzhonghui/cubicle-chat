@@ -92,10 +92,22 @@ export class NetworkService {
     this.callbacks = callbacks || {}
 
     // 获取本机用户信息
-    const userInfo = this.databaseService.getUserInfo()
-    this.selfUserId = userInfo?.userId ?? uuidv4()
-    this.selfNickname = userInfo?.nickname ?? os.hostname()
-    this.selfStatus = userInfo?.status ?? 'online'
+    let userInfo = this.databaseService.getUserInfo()
+    
+    // 如果用户信息不存在，创建并保存到数据库
+    if (!userInfo) {
+      const userId = uuidv4()
+      const nickname = os.hostname()
+      this.databaseService.setSetting('user.userId', userId)
+      this.databaseService.setSetting('user.nickname', nickname)
+      this.databaseService.setSetting('user.status', 'online')
+      userInfo = { userId, nickname, status: 'online' }
+      log.info('创建新用户信息:', { userId, nickname })
+    }
+    
+    this.selfUserId = userInfo.userId
+    this.selfNickname = userInfo.nickname
+    this.selfStatus = userInfo.status ?? 'online'
   }
 
   async init(): Promise<void> {
@@ -115,7 +127,7 @@ export class NetworkService {
   }
 
   private async initTcpTransfer(): Promise<void> {
-    this.tcpTransferService = new TcpTransferService(this.mainWindow)
+    this.tcpTransferService = new TcpTransferService(this.mainWindow, this.databaseService)
 
     // 设置回调
     this.tcpTransferService.setCallbacks(

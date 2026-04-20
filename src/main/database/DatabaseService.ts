@@ -86,7 +86,7 @@ export class DatabaseService {
 
       // 配置 SQLite
       this.db.pragma('journal_mode = WAL')
-      this.db.pragma('synchronous = NORMAL')
+      this.db.pragma('synchronous = FULL')
       this.db.pragma('cache_size = -64000')
       this.db.pragma('foreign_keys = ON')
       this.db.pragma('temp_store = MEMORY')
@@ -209,13 +209,20 @@ export class DatabaseService {
   }
 
   private initUserInfo(): void {
-    const userInfo = this.getUserInfo()
-    if (!userInfo) {
-      const userId = this.generateUUID()
-      const nickname = os.hostname()
-      this.setSetting('user.userId', userId)
-      this.setSetting('user.nickname', nickname)
+    const userId = this.getSetting('user.userId')
+    const nickname = this.getSetting('user.nickname')
+    
+    log.info('初始化用户信息 - 当前值:', { userId: userId || '(空)', nickname: nickname || '(空)' })
+    
+    if (!userId || !nickname) {
+      const newUserId = this.generateUUID()
+      const newNickname = os.hostname()
+      this.setSetting('user.userId', newUserId)
+      this.setSetting('user.nickname', newNickname)
       this.setSetting('user.status', 'online')
+      log.info('创建新用户信息:', { userId: newUserId, nickname: newNickname })
+    } else {
+      log.info('使用现有用户信息:', { userId, nickname })
     }
 
     // 初始化默认设置
@@ -266,16 +273,17 @@ export class DatabaseService {
   }
 
   updateUserInfo(info: Partial<UserInfo>): boolean {
-    if (info.nickname !== undefined) {
-      this.setSetting('user.nickname', info.nickname)
+    let success = true
+    if (info.nickname !== undefined && info.nickname.trim() !== '') {
+      success = this.setSetting('user.nickname', info.nickname.trim()) && success
     }
     if (info.avatar !== undefined) {
-      this.setSetting('user.avatar', info.avatar)
+      success = this.setSetting('user.avatar', info.avatar) && success
     }
     if (info.status !== undefined) {
-      this.setSetting('user.status', info.status)
+      success = this.setSetting('user.status', info.status) && success
     }
-    return true
+    return success
   }
 
   // 批量获取设置
@@ -701,22 +709,58 @@ export class DatabaseService {
 
     const stmt = this.db.prepare('SELECT value FROM settings WHERE key = ?')
     const row = stmt.get(key) as { value: string } | undefined
-    return row?.value || null
+    
+    // 如果记录不存在，返回 null
+    if (!row) return null
+    
+    // 如果值为空字符串，对于关键设置也返回 null
+    if (row.value === '' && (key === 'user.userId' || key === 'user.nickname')) {
+      log.warn(`关键设置 ${key} 为空字符串，视为不存在`)
+      return null
+    }
+    
+    return row.value
   }
 
   setSetting(key: string, value: string | null | undefined): boolean {
     if (!this.db) return false
 
-    // 处理空值，确保不会违反 NOT NULL 约束
-    const safeValue = (value === null || value === undefined) ? '' : String(value)
+    // 处理空值
+    if (value === null || value === undefined || String(value).trim() === '') {
+      // 对于关键用户设置，拒绝保存空值
+      if (key === 'user.userId' || key === 'user.nickname') {
+        log.error(`拒绝保存空值到关键设置: ${key}`)
+        return false
+      }
+      // 对于其他设置，使用空字符串
+      value = ''
+    }
+    
+    const safeValue = String(value)
     
     const stmt = this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
     stmt.run(key, safeValue)
+    log.info(`设置已保存: ${key} = ${key.startsWith('user.') ? '(敏感信息)' : safeValue}`)
+    
+    // 立即执行 checkpoint，确保数据写入磁盘
+    try {
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch (e) {
+      // checkpoint 失败不阻塞主流程
+      log.warn('WAL checkpoint 失败:', e)
+    }
+    
     return true
   }
 
   close(): void {
     if (this.db) {
+      // 关闭前执行 checkpoint，确保所有数据写入磁盘
+      try {
+        this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      } catch (e) {
+        log.warn('关闭前 checkpoint 失败:', e)
+      }
       this.db.close()
       this.db = null
     }
@@ -928,14 +972,15 @@ export class DatabaseService {
   }
 
   getDownloadPath(): string {
-    const downloadPath = app.getPath('downloads')
-    const cubicleChatPath = join(downloadPath, 'CubicleChat')
+    // 先从设置中读取用户自定义的下载路径
+    const customPath = this.getSetting('storage.downloadPath')
+    const downloadPath = customPath || join(app.getPath('downloads'), 'CubicleChat')
 
     // 确保目录存在
-    if (!fs.existsSync(cubicleChatPath)) {
-      fs.mkdirSync(cubicleChatPath, { recursive: true })
+    if (!fs.existsSync(downloadPath)) {
+      fs.mkdirSync(downloadPath, { recursive: true })
     }
 
-    return cubicleChatPath
+    return downloadPath
   }
 }
