@@ -47,7 +47,7 @@ const receiveChannels = [
 // 类型定义
 export interface ElectronAPI {
   send: (channel: string, data?: unknown) => void
-  invoke: <T = unknown>(channel: string, data?: unknown) => Promise<T>
+  invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>
   on: (channel: string, callback: (...args: unknown[]) => void) => () => void
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void
   getFilePath: (file: File) => string
@@ -148,9 +148,9 @@ const electronAPI: ElectronAPI = {
     }
   },
 
-  invoke: <T = unknown>(channel: string, data?: unknown): Promise<T> => {
+  invoke: <T = unknown>(channel: string, ...args: unknown[]): Promise<T> => {
     if (invokeChannels.includes(channel)) {
-      return ipcRenderer.invoke(channel, data)
+      return ipcRenderer.invoke(channel, ...args)
     }
     return Promise.reject(new Error(`IPC channel "${channel}" is not allowed`))
   },
