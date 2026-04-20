@@ -10,12 +10,12 @@ interface WindowButtonProps {
 }
 
 function WindowButton({ type, isMaximized, onClick }: WindowButtonProps): JSX.Element {
-  const baseClasses = 'w-3 h-3 rounded-full flex items-center justify-center hover:opacity-80 transition-all'
+  const baseClasses = 'group w-3 h-3 rounded-full flex items-center justify-center transition-all'
 
   const buttonStyles: Record<WindowButtonType, string> = {
-    close: 'bg-[#FF5F57] hover:bg-[#FF453A]',
-    minimize: 'bg-[#FFBC2E] hover:bg-[#FFA000]',
-    maximize: 'bg-[#28C840] hover:bg-[#1DB954]'
+    close: 'bg-[#FF5F57] hover:bg-[#FF5F57]',
+    minimize: 'bg-[#FFBC2E] hover:bg-[#FFBC2E]',
+    maximize: 'bg-[#28C840] hover:bg-[#28C840]'
   }
 
   const labels: Record<WindowButtonType, string> = {
@@ -29,7 +29,7 @@ function WindowButton({ type, isMaximized, onClick }: WindowButtonProps): JSX.El
     if (isMaximized) {
       // 双方块图标表示还原
       return (
-        <svg className="w-1.5 h-1.5 text-black/60" viewBox="0 0 8 8" fill="currentColor">
+        <svg className="w-1.5 h-1.5 text-[#4D0000]" viewBox="0 0 8 8" fill="currentColor">
           <rect x="0" y="2" width="6" height="6" rx="0.5" />
           <rect x="2" y="0" width="6" height="6" rx="0.5" fill="none" stroke="currentColor" strokeWidth="1" />
         </svg>
@@ -37,7 +37,7 @@ function WindowButton({ type, isMaximized, onClick }: WindowButtonProps): JSX.El
     }
     // 单方块图标表示最大化
     return (
-      <svg className="w-1.5 h-1.5 text-black/60" viewBox="0 0 8 8" fill="currentColor">
+      <svg className="w-1.5 h-1.5 text-[#004D00]" viewBox="0 0 8 8" fill="currentColor">
         <rect x="0.5" y="0.5" width="7" height="7" rx="1" />
       </svg>
     )
@@ -45,14 +45,14 @@ function WindowButton({ type, isMaximized, onClick }: WindowButtonProps): JSX.El
 
   // 最小化按钮内部图标
   const MinimizeIcon = (): JSX.Element => (
-    <svg className="w-1.5 h-0.5 bg-black/60 rounded-full" viewBox="0 0 6 2">
-      <rect width="6" height="2" rx="1" fill="currentColor" />
+    <svg className="w-1.5 h-0.5" viewBox="0 0 6 2">
+      <rect width="6" height="2" rx="1" fill="#995700" />
     </svg>
   )
 
   // 关闭按钮内部图标
   const CloseIcon = (): JSX.Element => (
-    <svg className="w-1.5 h-1.5 text-black/60" viewBox="0 0 8 8" fill="currentColor">
+    <svg className="w-1.5 h-1.5 text-[#4D0000]" viewBox="0 0 8 8" fill="currentColor">
       <path
         d="M1 1L7 7M7 1L1 7"
         stroke="currentColor"
@@ -75,7 +75,9 @@ function WindowButton({ type, isMaximized, onClick }: WindowButtonProps): JSX.El
       aria-label={labels[type]}
       title={labels[type]}
     >
-      {icons[type]}
+      <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        {icons[type]}
+      </span>
     </button>
   )
 }
