@@ -303,6 +303,16 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     }
   }
 
+  // 将文件读取为 Data URL
+  const readFileAsDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
   // 处理文件列表（拖拽或粘贴）
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -310,12 +320,29 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     for (const file of Array.from(files)) {
       try {
         // 使用 Electron 的 webUtils.getPathForFile 获取文件路径
-        const filePath = window.electronAPI.getFilePath(file)
+        let filePath = window.electronAPI.getFilePath(file)
+
+        // 如果没有路径（从剪贴板粘贴的图片），先保存为临时文件
+        if (!filePath) {
+          const dataUrl = await readFileAsDataURL(file)
+          const fileName = file.name || `clipboard-${Date.now()}.png`
+          const result = await window.electronAPI.invoke<{ success: boolean; filePath?: string; error?: string }>('file:saveClipboardImage', {
+            imageData: dataUrl,
+            fileName
+          })
+          if (result?.success && result.filePath) {
+            filePath = result.filePath
+          } else {
+            console.error('保存剪贴板图片失败:', result?.error)
+            continue
+          }
+        }
+
         if (filePath) {
           await sendSingleFile(filePath)
         }
       } catch (error) {
-        console.error('获取文件路径失败:', error)
+        console.error('处理文件失败:', error)
       }
     }
   }

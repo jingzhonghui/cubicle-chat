@@ -502,6 +502,30 @@ function registerIpcHandlers(): void {
     return result ?? { success: false, error: '网络服务未初始化' }
   })
 
+  // 保存剪贴板图片为临时文件
+  ipcMain.handle('file:saveClipboardImage', async (_, data: { imageData: string; fileName: string }) => {
+    try {
+      // 从 base64 数据创建缓冲区
+      const base64Data = data.imageData.replace(/^data:image\/\w+;base64,/, '')
+      const buffer = Buffer.from(base64Data, 'base64')
+
+      // 创建临时文件路径
+      const tempDir = path.join(app.getPath('temp'), 'CubicleChat')
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+      }
+      const tempFilePath = path.join(tempDir, data.fileName)
+
+      // 写入文件
+      fs.writeFileSync(tempFilePath, buffer)
+
+      return { success: true, filePath: tempFilePath }
+    } catch (error) {
+      log.error('保存剪贴板图片失败:', error)
+      return { success: false, error: String(error) }
+    }
+  })
+
   ipcMain.handle('file:get', async (_, data: { fileId: string }) => {
     return databaseService?.getFile(data.fileId) ?? null
   })

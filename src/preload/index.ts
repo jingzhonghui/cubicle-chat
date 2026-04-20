@@ -27,6 +27,7 @@ const invokeChannels = [
   'file:getList',
   'file:open',
   'file:openFolder',
+  'file:saveClipboardImage',
   'network:getInterfaces',
   'network:getCurrentInterface',
   'network:switchInterface'
