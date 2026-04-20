@@ -12,6 +12,7 @@
     "postinstall": "electron-builder install-app-deps",
     "build:win": "npm run build && electron-builder --win",
     "build:win:zip": "npm run build && electron-builder --win zip",
+    "build:win:all": "npm run build && electron-builder --win nsis zip",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux"
   },
