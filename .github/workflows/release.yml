@@ -68,7 +68,7 @@ jobs:
           files: |
             # dist/*.exe
             dist/CubicleChat-*.zip
-            dist/CubicleChat-*.exe
+            dist/cubicle-chat-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
