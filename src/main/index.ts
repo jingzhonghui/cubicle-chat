@@ -551,8 +551,8 @@ function registerIpcHandlers(): void {
   })
 
   // 网络接口相关
-  ipcMain.handle('network:getInterfaces', () => {
-    return networkService?.getNetworkInterfaces() ?? []
+  ipcMain.handle('network:getInterfaces', (_, includeVirtual = false) => {
+    return networkService?.getNetworkInterfaces(includeVirtual) ?? []
   })
 
   ipcMain.handle('network:getCurrentInterface', () => {

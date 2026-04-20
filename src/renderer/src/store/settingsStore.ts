@@ -18,6 +18,7 @@ export interface AppSettings {
   'network.udpPort': number
   'network.tcpPort': number
   'network.interface': string
+  'network.showVirtualInterfaces': boolean
 
   // 通知设置
   'notification.enabled': boolean
@@ -40,6 +41,7 @@ export const defaultSettings: Partial<AppSettings> = {
   'network.udpPort': 2425,
   'network.tcpPort': 2426,
   'network.interface': '',
+  'network.showVirtualInterfaces': false,
   'notification.enabled': true,
   'notification.sound': true,
   'startup.autoLaunch': false,

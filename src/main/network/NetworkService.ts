@@ -951,7 +951,7 @@ export class NetworkService {
   }
 
   // 获取所有可用的网络接口
-  getNetworkInterfaces(): NetworkInterface[] {
+  getNetworkInterfaces(includeVirtual = false): NetworkInterface[] {
     const interfaces = os.networkInterfaces()
     const result: NetworkInterface[] = []
 
@@ -967,6 +967,11 @@ export class NetworkService {
 
         // 检查是否为虚拟网卡
         const isVirtual = this.isVirtualInterface(name, info.address)
+
+        // 如果不包含虚拟网卡且当前是虚拟网卡，则跳过
+        if (!includeVirtual && isVirtual) {
+          continue
+        }
 
         // 计算优先级
         let priority = 999

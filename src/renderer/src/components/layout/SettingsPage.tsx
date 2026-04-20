@@ -333,24 +333,10 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
   const [currentInterface, setCurrentInterface] = useState<NetworkInterface | null>(null)
   const [isSwitchingInterface, setIsSwitchingInterface] = useState(false)
 
-  // 加载设置
-  useEffect(() => {
-    if (isActive) {
-      loadSettings()
-    }
-  }, [isActive, loadSettings])
-
-  // 当切换到网络设置标签时，刷新网卡列表
-  useEffect(() => {
-    if (isActive && activeSection === 'network') {
-      loadNetworkInterfaces()
-    }
-  }, [isActive, activeSection])
-
   // 加载网卡列表
-  const loadNetworkInterfaces = async () => {
+  const loadNetworkInterfaces = async (includeVirtual = false) => {
     try {
-      const interfaces = await window.electronAPI.invoke<NetworkInterface[]>('network:getInterfaces')
+      const interfaces = await window.electronAPI.invoke<NetworkInterface[]>('network:getInterfaces', includeVirtual)
       setNetworkInterfaces(interfaces)
       const current = await window.electronAPI.invoke<NetworkInterface | null>('network:getCurrentInterface')
       setCurrentInterface(current)
@@ -358,6 +344,23 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
       console.error('加载网卡列表失败:', error)
     }
   }
+
+  // 加载设置
+  useEffect(() => {
+    if (isActive) {
+      loadSettings()
+    }
+  }, [isActive, loadSettings])
+
+  // 获取显示虚拟网卡设置
+  const showVirtualInterfaces = settings['network.showVirtualInterfaces'] === true
+
+  // 当切换到网络设置标签时，刷新网卡列表
+  useEffect(() => {
+    if (isActive && activeSection === 'network') {
+      loadNetworkInterfaces(showVirtualInterfaces)
+    }
+  }, [isActive, activeSection, showVirtualInterfaces])
 
   // 处理网卡切换
   const handleSwitchInterface = async (address: string) => {
@@ -631,7 +634,14 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
               {activeSection === 'network' && (
                 <>
                   <SettingGroup title="网卡选择" icon="🖧">
-                    <div className="py-3">
+                    <SettingItemToggle
+                      label="显示虚拟网卡"
+                      checked={showVirtualInterfaces}
+                      onChange={(checked) => setSetting('network.showVirtualInterfaces', checked)}
+                      description="显示虚拟网卡（如 VMware、Docker、VPN 等）供手动选择"
+                    />
+
+                    <div className="py-3 border-t border-[var(--border)]">
                       <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
                         当前使用的网卡
                       </label>
