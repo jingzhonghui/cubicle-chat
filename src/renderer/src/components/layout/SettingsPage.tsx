@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useSettingsStore, type Theme, type Language, type UserStatus } from '@store/settingsStore'
 import { useUserStore } from '@store/userStore'
 
+// 网卡接口类型
+interface NetworkInterface {
+  name: string
+  address: string
+  netmask: string
+  broadcast: string
+  isInternal: boolean
+  isVirtual: boolean
+  priority: number
+}
+
 interface SettingsPageProps {
   isActive: boolean
 }
@@ -311,11 +322,16 @@ function AvatarUpload({
 }
 
 function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
-  const { settings, loadSettings, setSetting, setSettings, isLoading, applyTheme } = useSettingsStore()
-  const { userInfo, updateUserInfo } = useUserStore()
+  const { settings, loadSettings, setSetting, isLoading, applyTheme } = useSettingsStore()
+  const { userInfo, updateUserInfo, loadOnlineUsers } = useUserStore()
   const [activeSection, setActiveSection] = useState('profile')
   const [localNickname, setLocalNickname] = useState('')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  // 网卡相关状态
+  const [networkInterfaces, setNetworkInterfaces] = useState<NetworkInterface[]>([])
+  const [currentInterface, setCurrentInterface] = useState<NetworkInterface | null>(null)
+  const [isSwitchingInterface, setIsSwitchingInterface] = useState(false)
 
   // 加载设置
   useEffect(() => {
@@ -323,6 +339,74 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
       loadSettings()
     }
   }, [isActive, loadSettings])
+
+  // 当切换到网络设置标签时，刷新网卡列表
+  useEffect(() => {
+    if (isActive && activeSection === 'network') {
+      loadNetworkInterfaces()
+    }
+  }, [isActive, activeSection])
+
+  // 加载网卡列表
+  const loadNetworkInterfaces = async () => {
+    try {
+      const interfaces = await window.electronAPI.invoke<NetworkInterface[]>('network:getInterfaces')
+      setNetworkInterfaces(interfaces)
+      const current = await window.electronAPI.invoke<NetworkInterface | null>('network:getCurrentInterface')
+      setCurrentInterface(current)
+    } catch (error) {
+      console.error('加载网卡列表失败:', error)
+    }
+  }
+
+  // 处理网卡切换
+  const handleSwitchInterface = async (address: string) => {
+    if (address === currentInterface?.address) return
+
+    // 确认切换
+    const targetInterface = networkInterfaces.find(iface => iface.address === address)
+    if (!targetInterface) return
+
+    const confirmed = confirm(
+      `确定要切换到网卡 "${targetInterface.name}" (${targetInterface.address}) 吗？\n\n` +
+      `切换网卡将：\n` +
+      `1. 清空当前在线用户列表\n` +
+      `2. 使用新的网卡重新广播发现用户\n\n` +
+      `此操作可能需要几秒钟完成。`
+    )
+
+    if (!confirmed) return
+
+    setIsSwitchingInterface(true)
+    setSaveStatus('saving')
+
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>(
+        'network:switchInterface',
+        address
+      )
+
+      if (result.success) {
+        // 更新设置
+        await setSetting('network.interface', address)
+        // 重新加载网卡列表以获取最新状态
+        await loadNetworkInterfaces()
+        // 刷新在线用户列表（此时应该为空）
+        await loadOnlineUsers()
+        setSaveStatus('saved')
+      } else {
+        alert(`切换网卡失败: ${result.error || '未知错误'}`)
+        setSaveStatus('error')
+      }
+    } catch (error) {
+      console.error('切换网卡失败:', error)
+      alert('切换网卡失败，请重试')
+      setSaveStatus('error')
+    } finally {
+      setIsSwitchingInterface(false)
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }
+  }
 
   // 同步本地昵称
   useEffect(() => {
@@ -546,6 +630,102 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
               {/* 网络设置 */}
               {activeSection === 'network' && (
                 <>
+                  <SettingGroup title="网卡选择" icon="🖧">
+                    <div className="py-3">
+                      <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
+                        当前使用的网卡
+                      </label>
+                      {currentInterface ? (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-[var(--accent-light)] rounded-lg">
+                          <span className="text-sm text-[var(--accent)]">
+                            {currentInterface.isInternal ? '🔄' : currentInterface.isVirtual ? '🔧' : '📡'}
+                          </span>
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-[var(--text-primary)]">
+                              {currentInterface.name}
+                            </div>
+                            <div className="text-xs text-[var(--text-secondary)]">
+                              {currentInterface.address} / {currentInterface.netmask}
+                            </div>
+                          </div>
+                          {currentInterface.isVirtual && (
+                            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full">
+                              虚拟网卡
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-[var(--text-secondary)] px-3 py-2">
+                          自动选择网卡
+                        </div>
+                      )}
+                      <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
+                        程序会自动选择最优的物理网卡进行通信
+                      </p>
+                    </div>
+
+                    <div className="border-t border-[var(--border)]">
+                      <div className="py-3">
+                        <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
+                          手动选择网卡
+                        </label>
+                        {networkInterfaces.length > 0 ? (
+                          <div className="space-y-2">
+                            {networkInterfaces.map((iface) => (
+                              <button
+                                key={iface.address}
+                                onClick={() => handleSwitchInterface(iface.address)}
+                                disabled={isSwitchingInterface || iface.address === currentInterface?.address}
+                                className={`
+                                  w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-all border
+                                  ${iface.address === currentInterface?.address
+                                    ? 'bg-[var(--accent-light)] border-[var(--accent)]'
+                                    : 'bg-[var(--bg-input)] border-[var(--border)] hover:border-[var(--accent)]'
+                                  }
+                                  ${isSwitchingInterface ? 'opacity-50 cursor-not-allowed' : ''}
+                                `}
+                              >
+                                <span className="text-sm">
+                                  {iface.isInternal ? '🔄' : iface.isVirtual ? '🔧' : '📡'}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+                                    {iface.name}
+                                  </div>
+                                  <div className="text-xs text-[var(--text-secondary)] truncate">
+                                    {iface.address} / {iface.netmask}
+                                  </div>
+                                </div>
+                                {iface.address === currentInterface?.address && (
+                                  <span className="text-xs px-2 py-0.5 bg-[var(--accent)] text-white rounded-full flex-shrink-0">
+                                    当前
+                                  </span>
+                                )}
+                                {iface.priority <= 3 && !iface.isVirtual && (
+                                  <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full flex-shrink-0">
+                                    推荐
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-[var(--text-secondary)] px-3 py-2 bg-[var(--bg-input)] rounded-lg">
+                            未找到可用的网络接口
+                          </div>
+                        )}
+                        {isSwitchingInterface && (
+                          <p className="mt-2 text-xs text-[var(--accent)]">
+                            正在切换网卡并重新发现用户...
+                          </p>
+                        )}
+                        <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
+                          多网卡环境下，如果自动选择的网卡不正确，可以手动切换
+                        </p>
+                      </div>
+                    </div>
+                  </SettingGroup>
+
                   <SettingGroup title="端口设置" icon="🌐">
                     <SettingItemNumber
                       label="UDP 广播端口"

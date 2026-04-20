@@ -22,7 +22,7 @@ interface UserStore {
   // Actions
   loadUserInfo: () => Promise<void>
   loadOnlineUsers: () => Promise<void>
-  updateUserInfo: (info: Partial<UserInfo>) => Promise<void>
+  updateUserInfo: (info: Partial<UserInfo>) => Promise<boolean>
   addOnlineUser: (user: OnlineUser) => void
   removeOnlineUser: (userId: string) => void
   updateOnlineUser: (user: OnlineUser) => void

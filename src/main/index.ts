@@ -526,6 +526,24 @@ function registerIpcHandlers(): void {
     return false
   })
 
+  // 网络接口相关
+  ipcMain.handle('network:getInterfaces', () => {
+    return networkService?.getNetworkInterfaces() ?? []
+  })
+
+  ipcMain.handle('network:getCurrentInterface', () => {
+    return networkService?.getCurrentInterface() ?? null
+  })
+
+  ipcMain.handle('network:switchInterface', async (_, address: string) => {
+    const result = await networkService?.switchInterface(address)
+    if (result?.success) {
+      // 保存到设置
+      databaseService?.setSetting('network.interface', address)
+    }
+    return result ?? { success: false, error: '网络服务未初始化' }
+  })
+
   log.info('IPC 处理器注册完成')
 }
 

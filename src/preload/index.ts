@@ -26,7 +26,10 @@ const invokeChannels = [
   'file:get',
   'file:getList',
   'file:open',
-  'file:openFolder'
+  'file:openFolder',
+  'network:getInterfaces',
+  'network:getCurrentInterface',
+  'network:switchInterface'
 ]
 
 const receiveChannels = [
@@ -138,6 +141,16 @@ export interface FileReceiveRequest {
   fromAvatar?: string
   peerIp: string
   tcpPort: number
+}
+
+export interface NetworkInterface {
+  name: string
+  address: string
+  netmask: string
+  broadcast: string
+  isInternal: boolean
+  isVirtual: boolean
+  priority: number
 }
 
 // API 实现

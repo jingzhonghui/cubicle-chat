@@ -9,23 +9,24 @@ export interface AppSettings {
   'user.nickname': string
   'user.status': UserStatus
   'user.avatar'?: string
-  
+
   // 存储设置
   'storage.downloadPath': string
   'storage.retentionDays': number
-  
+
   // 网络设置
   'network.udpPort': number
   'network.tcpPort': number
-  
+  'network.interface': string
+
   // 通知设置
   'notification.enabled': boolean
   'notification.sound': boolean
-  
+
   // 启动设置
   'startup.autoLaunch': boolean
   'startup.minimized': boolean
-  
+
   // 界面设置
   'ui.language': Language
   'ui.theme': Theme
@@ -38,6 +39,7 @@ export const defaultSettings: Partial<AppSettings> = {
   'storage.retentionDays': 180,
   'network.udpPort': 2425,
   'network.tcpPort': 2426,
+  'network.interface': '',
   'notification.enabled': true,
   'notification.sound': true,
   'startup.autoLaunch': false,
@@ -99,6 +101,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         'storage.retentionDays',
         'network.udpPort',
         'network.tcpPort',
+        'network.interface',
         'notification.enabled',
         'notification.sound',
         'startup.autoLaunch',

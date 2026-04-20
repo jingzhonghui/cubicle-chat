@@ -235,6 +235,7 @@ export class DatabaseService {
       'storage.retentionDays': '180',
       'network.udpPort': '2425',
       'network.tcpPort': '2426',
+      'network.interface': '', // 网络接口为空表示自动选择
       'notification.enabled': 'true',
       'notification.sound': 'true',
       'startup.autoLaunch': 'false',

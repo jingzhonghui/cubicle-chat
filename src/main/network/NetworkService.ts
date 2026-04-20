@@ -57,6 +57,16 @@ export interface OnlineUser {
   version: string
 }
 
+export interface NetworkInterface {
+  name: string
+  address: string
+  netmask: string
+  broadcast: string
+  isInternal: boolean
+  isVirtual: boolean
+  priority: number
+}
+
 // 常量配置
 const UDP_PORT = 2425
 const TCP_PORT = 2426
@@ -85,6 +95,7 @@ export class NetworkService {
   private localIP: string = ''
   private tcpPort: number = TCP_PORT
   private callbacks: NetworkServiceCallbacks
+  private isManualInterface: boolean = false // 标记是否手动设置了网卡
 
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService, callbacks?: NetworkServiceCallbacks) {
     this.mainWindow = mainWindow
@@ -113,6 +124,9 @@ export class NetworkService {
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // 从设置中加载网络接口配置
+        this.loadInterfaceFromSettings()
+
         this.createUdpSocket()
         this.initTcpTransfer()
         this.startHeartbeat()
@@ -184,16 +198,23 @@ export class NetworkService {
 
     this.udpSocket.on('listening', () => {
       log.info('UDP socket 开始监听')
-      
+
       // 设置广播
       this.udpSocket!.setBroadcast(true)
-      
-      // 计算本机 IP 和广播地址
-      this.localIP = this.getLocalIP()
-      this.broadcastAddress = this.getBroadcastAddress()
-      
+
+      // 如果没有手动设置网卡，才自动检测
+      if (!this.isManualInterface) {
+        // 计算本机 IP 和广播地址
+        this.localIP = this.getLocalIP()
+        this.broadcastAddress = this.getBroadcastAddress()
+      } else {
+        // 手动设置了网卡，重新计算对应网卡的广播地址
+        this.broadcastAddress = this.calculateBroadcastAddress(this.localIP)
+        log.info(`使用手动设置的网卡: ${this.localIP}`)
+      }
+
       log.info(`本机 IP: ${this.localIP}, 广播地址: ${this.broadcastAddress}`)
-      
+
       // 初始化完成后发送上线广播
       setTimeout(() => {
         this.broadcastOnline()
@@ -929,6 +950,195 @@ export class NetworkService {
     return this.tcpTransferService
   }
 
+  // 获取所有可用的网络接口
+  getNetworkInterfaces(): NetworkInterface[] {
+    const interfaces = os.networkInterfaces()
+    const result: NetworkInterface[] = []
+
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name]
+      if (!iface) continue
+
+      for (const info of iface) {
+        // 只处理 IPv4
+        if (info.family !== 'IPv4') {
+          continue
+        }
+
+        // 检查是否为虚拟网卡
+        const isVirtual = this.isVirtualInterface(name, info.address)
+
+        // 计算优先级
+        let priority = 999
+        if (info.internal) {
+          priority = 999 // 回环接口优先级最低
+        } else if (/WLAN|Wi-Fi|Wireless/i.test(name)) {
+          priority = 1 // WiFi 优先级最高
+        } else if (/以太网|Ethernet/i.test(name) && !isVirtual) {
+          priority = 2 // 以太网次之
+        } else if (!isVirtual) {
+          priority = 3 // 其他物理网卡
+        } else {
+          priority = 100 // 虚拟网卡
+        }
+
+        // 计算广播地址
+        let broadcast = '255.255.255.255'
+        if (info.netmask && !info.internal) {
+          const ipParts = info.address.split('.').map(Number)
+          const maskParts = info.netmask.split('.').map(Number)
+          const broadcastParts = ipParts.map((ipPart, i) => ipPart | (~maskParts[i] & 255))
+          broadcast = broadcastParts.join('.')
+        }
+
+        result.push({
+          name,
+          address: info.address,
+          netmask: info.netmask || '',
+          broadcast,
+          isInternal: info.internal,
+          isVirtual,
+          priority
+        })
+      }
+    }
+
+    // 按优先级排序
+    result.sort((a, b) => a.priority - b.priority)
+
+    return result
+  }
+
+  // 检查是否为虚拟网卡
+  private isVirtualInterface(name: string, address: string): boolean {
+    // 检查虚拟网卡名称
+    if (/^(vEthernet|VMware|VirtualBox|Docker|ZeroTier|WSL|Tailscale|NordVPN|TAP-Windows|veth|br-|docker|virbr)/i.test(name)) {
+      return true
+    }
+
+    // 检查虚拟网段
+    if (address.startsWith('127.') ||
+        address.startsWith('172.23.') ||
+        address.startsWith('172.24.') ||
+        address.startsWith('172.25.') ||
+        address.startsWith('172.26.') ||
+        address.startsWith('172.27.') ||
+        address.startsWith('172.28.') ||
+        address.startsWith('172.29.') ||
+        address.startsWith('172.30.') ||
+        address.startsWith('172.31.') ||
+        address.startsWith('169.254.') ||
+        address.startsWith('192.168.56.')) {
+      return true
+    }
+
+    return false
+  }
+
+  // 获取当前使用的网络接口
+  getCurrentInterface(): NetworkInterface | null {
+    const currentIP = this.localIP
+    if (!currentIP) return null
+
+    const interfaces = this.getNetworkInterfaces()
+    return interfaces.find(iface => iface.address === currentIP) || null
+  }
+
+  // 切换网络接口
+  async switchInterface(address: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 验证地址是否有效
+      const interfaces = this.getNetworkInterfaces()
+      const targetInterface = interfaces.find(iface => iface.address === address)
+
+      if (!targetInterface) {
+        return { success: false, error: '无效的网络接口地址' }
+      }
+
+      // 如果当前已经是这个地址，不需要切换
+      if (this.localIP === address) {
+        return { success: true }
+      }
+
+      log.info(`切换网络接口: ${this.localIP} -> ${address} (${targetInterface.name})`)
+
+      // 1. 发送下线通知（使用旧的网络接口）
+      this.sendOffline()
+
+      // 2. 清空在线用户列表
+      const previousUsers = Array.from(this.onlineUsers.keys())
+      this.onlineUsers.clear()
+
+      // 3. 通知渲染进程用户已离线
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        for (const userId of previousUsers) {
+          this.mainWindow.webContents.send('user:offline', { userId })
+        }
+      }
+
+      // 4. 更新网络配置
+      this.localIP = address
+      this.broadcastAddress = targetInterface.broadcast
+      this.isManualInterface = true // 标记为手动设置
+
+      // 5. 重新绑定 UDP socket
+      await this.rebindUdpSocket()
+
+      // 6. 发送上线广播（使用新的网络接口）
+      setTimeout(() => {
+        this.broadcastOnline()
+      }, 500)
+
+      log.info(`网络接口切换成功: ${address} (${targetInterface.name}), 广播地址: ${this.broadcastAddress}`)
+      return { success: true }
+    } catch (error) {
+      log.error('切换网络接口失败:', error)
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // 重新绑定 UDP Socket
+  private async rebindUdpSocket(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        // 关闭现有的 socket
+        if (this.udpSocket) {
+          this.udpSocket.close()
+          this.udpSocket = null
+        }
+
+        // 创建新的 socket
+        this.createUdpSocket()
+
+        // 等待 socket 准备好
+        setTimeout(() => {
+          if (this.udpSocket) {
+            resolve()
+          } else {
+            reject(new Error('UDP socket 重新绑定失败'))
+          }
+        }, 1000)
+      } catch (error) {
+        reject(error)
+      }
+    })
+  }
+
+  // 从设置中加载网络接口配置
+  loadInterfaceFromSettings(): void {
+    const savedInterface = this.databaseService.getSetting('network.interface')
+    if (savedInterface) {
+      const interfaces = this.getNetworkInterfaces()
+      const targetInterface = interfaces.find(iface => iface.address === savedInterface)
+      if (targetInterface) {
+        this.localIP = targetInterface.address
+        this.broadcastAddress = targetInterface.broadcast
+        this.isManualInterface = true // 标记为手动设置
+        log.info(`从设置加载网络接口: ${this.localIP} (${targetInterface.name})`)
+      }
+    }
+  }
+
   private broadcastOnline(): void {
     log.info(`发送上线广播: localIP=${this.localIP}, broadcastAddress=${this.broadcastAddress}`)
     this.sendPacket('ONLINE', {})
@@ -1091,10 +1301,15 @@ export class NetworkService {
   // 计算给定 IP 的子网广播地址（根据 netmask 动态计算）
   private getBroadcastAddress(): string {
     const ip = this.localIP || this.getLocalIP()
+    return this.calculateBroadcastAddress(ip)
+  }
+
+  // 计算指定 IP 的广播地址
+  private calculateBroadcastAddress(ip: string): string {
     if (ip === '127.0.0.1') {
       return '127.0.0.1' // 本地回环不用广播
     }
-    
+
     const interfaces = os.networkInterfaces()
     for (const name of Object.keys(interfaces)) {
       const iface = interfaces[name]
@@ -1112,7 +1327,7 @@ export class NetworkService {
         }
       }
     }
-    
+
     // 回退到受限广播地址（适用于所有网络）
     return '255.255.255.255'
   }
