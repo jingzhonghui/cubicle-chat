@@ -251,6 +251,7 @@ export class TcpTransferService {
       let seq = 0
       let lastUpdateTime = Date.now()
       let lastUpdateBytes = startOffset
+      let isPaused = false
 
       // 确定分块大小
       let chunkSize = CHUNK_SIZE.MEDIUM
@@ -265,18 +266,37 @@ export class TcpTransferService {
         highWaterMark: chunkSize
       })
 
-      stream.on('data', (chunk: Buffer) => {
+      // 处理背压：如果 socket 缓冲区已满，暂停读取
+      socket.on('drain', () => {
+        if (isPaused) {
+          isPaused = false
+          stream.resume()
+        }
+      })
+
+      stream.on('data', (chunk) => {
+        const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
         // 发送分块
         const frame: TcpFrame = {
           type: 'CHUNK',
           transferId: transfer.transferId,
           offset,
           seq: seq++,
-          data: chunk.toString('base64')
+          data: bufferChunk.toString('base64')
         }
-        this.sendFrame(socket, frame)
+        
+        const frameData = Buffer.from(JSON.stringify(frame), 'utf-8')
+        const lengthBuffer = Buffer.alloc(4)
+        lengthBuffer.writeUInt32BE(frameData.length)
+        const canContinue = socket.write(Buffer.concat([lengthBuffer, frameData]))
+        
+        // 如果返回 false，说明缓冲区已满，需要暂停读取
+        if (!canContinue) {
+          isPaused = true
+          stream.pause()
+        }
 
-        offset += chunk.length
+        offset += bufferChunk.length
         transfer.transferredBytes = offset
         transfer.progress = Math.round((offset / fileSize) * 100)
 
@@ -341,6 +361,8 @@ export class TcpTransferService {
     let receiveStream: fs.WriteStream | null = null
     let receivedBytes = 0
     let expectedMd5: string | null = null
+    let lastUpdateTime = Date.now()
+    let lastUpdateBytes = 0
 
     socket.on('data', (data: Buffer) => {
       buffer = Buffer.concat([buffer, data])
@@ -382,6 +404,8 @@ export class TcpTransferService {
               transfer.fileSize = totalSize
               currentTransfer = transfer
               receivedBytes = offset
+              lastUpdateBytes = offset
+              lastUpdateTime = Date.now()
 
               // 发送握手确认
               const ackFrame: TcpFrame = { type: 'HANDSHAKE_OK', transferId }
@@ -409,6 +433,16 @@ export class TcpTransferService {
               if (currentTransfer) {
                 currentTransfer.transferredBytes = receivedBytes
                 currentTransfer.progress = Math.round((receivedBytes / currentTransfer.fileSize) * 100)
+                
+                // 计算接收速度
+                const now = Date.now()
+                const elapsed = (now - lastUpdateTime) / 1000
+                if (elapsed >= 0.5) {
+                  currentTransfer.speed = (receivedBytes - lastUpdateBytes) / elapsed
+                  lastUpdateTime = now
+                  lastUpdateBytes = receivedBytes
+                }
+                
                 this.notifyProgress(currentTransfer)
               }
               break
