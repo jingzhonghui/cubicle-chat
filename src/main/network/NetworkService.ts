@@ -91,6 +91,7 @@ export class NetworkService {
   private selfUserId: string
   private selfNickname: string
   private selfStatus: UserStatus = 'online'
+  private selfAvatar: string = ''
   private broadcastAddress: string = ''
   private localIP: string = ''
   private tcpPort: number = TCP_PORT
@@ -119,6 +120,7 @@ export class NetworkService {
     this.selfUserId = userInfo.userId
     this.selfNickname = userInfo.nickname
     this.selfStatus = userInfo.status ?? 'online'
+    this.selfAvatar = userInfo.avatar ?? ''
   }
 
   async init(): Promise<void> {
@@ -627,6 +629,7 @@ export class NetworkService {
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: this.tcpPort,
+        avatar: this.selfAvatar,
         status: this.selfStatus,
         version: app.getVersion()
       },
@@ -797,6 +800,7 @@ export class NetworkService {
           nickname: this.selfNickname,
           ip: this.localIP || this.getLocalIP(),
           port: this.tcpPort,
+          avatar: this.selfAvatar,
           status: this.selfStatus,
           version: app.getVersion()
         },
@@ -1184,6 +1188,7 @@ export class NetworkService {
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: TCP_PORT,
+        avatar: this.selfAvatar,
         status: this.selfStatus,
         version: app.getVersion()
       },
@@ -1410,6 +1415,7 @@ export class NetworkService {
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: TCP_PORT,
+        avatar: this.selfAvatar,
         status: this.selfStatus,
         version: app.getVersion()
       },
@@ -1417,6 +1423,8 @@ export class NetworkService {
     }
 
     this.sendPacketDirect(packet)
+
+    // 返回消息 ID 给渲染进程
     return { success: true, messageId }
   }
 
@@ -1436,6 +1444,9 @@ export class NetworkService {
     // 更新本地缓存
     this.selfNickname = userInfo.nickname
     this.selfStatus = userInfo.status as UserStatus
+    if (userInfo.avatar !== undefined) {
+      this.selfAvatar = userInfo.avatar
+    }
     // 广播状态变更
     this.sendPacket('STATUS_CHANGE', {})
   }

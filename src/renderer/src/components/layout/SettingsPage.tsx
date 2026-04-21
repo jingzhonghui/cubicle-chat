@@ -243,8 +243,52 @@ function SettingGroup({
   )
 }
 
-// 头像上传组件
-function AvatarUpload({
+// 内置头像列表
+const BUILTIN_AVATARS = [
+  { id: 'default', emoji: '', label: '默认（首字母）' },
+  { id: 'cat', emoji: '🐱', label: '猫咪' },
+  { id: 'dog', emoji: '🐶', label: '狗狗' },
+  { id: 'fox', emoji: '🦊', label: '狐狸' },
+  { id: 'panda', emoji: '🐼', label: '熊猫' },
+  { id: 'rabbit', emoji: '🐰', label: '兔子' },
+  { id: 'tiger', emoji: '🐯', label: '老虎' },
+  { id: 'lion', emoji: '🦁', label: '狮子' },
+  { id: 'bear', emoji: '🐻', label: '棕熊' },
+  { id: 'koala', emoji: '🐨', label: '考拉' },
+  { id: 'pig', emoji: '🐷', label: '小猪' },
+  { id: 'monkey', emoji: '🐵', label: '猴子' },
+  { id: 'robot', emoji: '🤖', label: '机器人' },
+  { id: 'alien', emoji: '👽', label: '外星人' },
+  { id: 'ghost', emoji: '👻', label: '幽灵' },
+  { id: 'ninja', emoji: '🥷', label: '忍者' },
+  { id: 'detective', emoji: '🕵️', label: '侦探' },
+  { id: 'astronaut', emoji: '👨‍🚀', label: '宇航员' },
+  { id: 'scientist', emoji: '👨‍🔬', label: '科学家' },
+  { id: 'artist', emoji: '👨‍🎨', label: '艺术家' },
+  { id: 'chef', emoji: '👨‍🍳', label: '厨师' },
+  { id: 'student', emoji: '👨‍🎓', label: '学生' },
+  { id: 'business', emoji: '👨‍💼', label: '商务' },
+  { id: 'worker', emoji: '👨‍🔧', label: '工程师' },
+  { id: 'farmer', emoji: '👨‍🌾', label: '农民' },
+  { id: 'pilot', emoji: '👨‍✈️', label: '飞行员' },
+  { id: 'police', emoji: '👮', label: '警察' },
+  { id: 'firefighter', emoji: '👨‍🚒', label: '消防员' },
+  { id: 'doctor', emoji: '👨‍⚕️', label: '医生' },
+  { id: 'teacher', emoji: '👨‍🏫', label: '教师' },
+  { id: 'judge', emoji: '👨‍⚖️', label: '法官' },
+  { id: 'superhero', emoji: '🦸', label: '超级英雄' },
+  { id: 'vampire', emoji: '🧛', label: '吸血鬼' },
+  { id: 'mage', emoji: '🧙', label: '法师' },
+  { id: 'fairy', emoji: '🧚', label: '精灵' },
+  { id: 'angel', emoji: '👼', label: '天使' },
+  { id: 'devil', emoji: '😈', label: '恶魔' },
+  { id: 'clown', emoji: '🤡', label: '小丑' },
+  { id: 'skull', emoji: '💀', label: '骷髅' },
+  { id: 'poo', emoji: '💩', label: '便便' }
+]
+
+// 内置头像选择组件
+function AvatarSelector({
   nickname,
   avatar,
   onChange
@@ -253,70 +297,101 @@ function AvatarUpload({
   avatar?: string
   onChange: (avatar: string) => void
 }): JSX.Element {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = nickname.charCodeAt(0) % colors.length
+  const [showSelector, setShowSelector] = useState(false)
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    try {
-      // 读取文件为 base64
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string
-        // 限制图片大小，压缩到 64x64
-        if (base64) {
-          onChange(base64)
-        }
-      }
-      reader.readAsDataURL(file)
-    } catch (error) {
-      console.error('读取头像失败:', error)
+  // 获取当前显示的内容
+  const getCurrentDisplay = () => {
+    if (!avatar || avatar === '') {
+      return { type: 'letter', content: nickname.charAt(0).toUpperCase() }
     }
+    const builtin = BUILTIN_AVATARS.find(a => a.id === avatar)
+    if (builtin) {
+      return { type: 'emoji', content: builtin.emoji }
+    }
+    // 兼容旧数据（base64 图片）
+    if (avatar.startsWith('data:')) {
+      return { type: 'image', content: avatar }
+    }
+    return { type: 'letter', content: nickname.charAt(0).toUpperCase() }
+  }
+
+  const currentDisplay = getCurrentDisplay()
+
+  const handleSelect = (avatarId: string) => {
+    onChange(avatarId)
+    setShowSelector(false)
   }
 
   return (
-    <div className="py-3 flex items-center gap-4">
-      <div
-        className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold text-white overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
-        style={{ backgroundColor: avatar ? 'transparent' : colors[colorIndex] }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        {avatar ? (
-          <img src={avatar} alt="头像" className="w-full h-full object-cover" />
-        ) : (
-          nickname.charAt(0).toUpperCase()
-        )}
-      </div>
-      <div className="flex-1">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-1">头像</div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 bg-[var(--accent)] text-white text-xs font-medium rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
-          >
-            更换头像
-          </button>
-          {avatar && (
-            <button
-              onClick={() => onChange('')}
-              className="px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-secondary)] text-xs font-medium rounded-lg hover:bg-[var(--border)] transition-colors"
-            >
-              移除
-            </button>
+    <div className="py-3">
+      <div className="flex items-center gap-4 mb-3">
+        {/* 当前头像预览 */}
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold text-white overflow-hidden"
+          style={{
+            backgroundColor: currentDisplay.type === 'letter' ? colors[colorIndex] : '#E5E7EB',
+            border: '2px solid var(--border)'
+          }}
+        >
+          {currentDisplay.type === 'image' ? (
+            <img src={currentDisplay.content} alt="头像" className="w-full h-full object-cover" />
+          ) : currentDisplay.type === 'emoji' ? (
+            <span className="text-3xl">{currentDisplay.content}</span>
+          ) : (
+            <span>{currentDisplay.content}</span>
           )}
         </div>
-        <p className="mt-1 text-xs text-[var(--text-secondary)]">支持 JPG、PNG 格式，建议 64×64 像素</p>
+
+        <div className="flex-1">
+          <div className="text-sm font-medium text-[var(--text-primary)] mb-1">头像</div>
+          <button
+            onClick={() => setShowSelector(!showSelector)}
+            className="px-3 py-1.5 bg-[var(--accent)] text-white text-xs font-medium rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+          >
+            {showSelector ? '关闭选择' : '更换头像'}
+          </button>
+        </div>
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/jpg"
-        onChange={handleFileChange}
-        className="hidden"
-      />
+
+      {/* 头像选择面板 */}
+      {showSelector && (
+        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-3">
+          <div className="text-xs text-[var(--text-secondary)] mb-2">选择内置头像：</div>
+          <div className="grid grid-cols-8 gap-1.5 max-h-[200px] overflow-y-auto">
+            {BUILTIN_AVATARS.map((builtinAvatar) => (
+              <button
+                key={builtinAvatar.id}
+                onClick={() => handleSelect(builtinAvatar.id)}
+                title={builtinAvatar.label}
+                className={`
+                  w-10 h-10 rounded-lg flex items-center justify-center text-xl
+                  transition-all hover:bg-[var(--bg-base)]
+                  ${avatar === builtinAvatar.id
+                    ? 'bg-[var(--accent-light)] ring-2 ring-[var(--accent)]'
+                    : 'bg-[var(--bg-input)]'
+                  }
+                `}
+              >
+                {builtinAvatar.id === 'default' ? (
+                  <span
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                    style={{ backgroundColor: colors[colorIndex] }}
+                  >
+                    {nickname.charAt(0).toUpperCase()}
+                  </span>
+                ) : (
+                  builtinAvatar.emoji
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-[var(--text-disabled)]">
+            点击头像即可更换，默认使用昵称首字母
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -558,7 +633,7 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
               {activeSection === 'profile' && (
                 <>
                   <SettingGroup title="个人资料" icon="👤">
-                    <AvatarUpload
+                    <AvatarSelector
                       nickname={nickname}
                       avatar={avatar}
                       onChange={handleAvatarChange}

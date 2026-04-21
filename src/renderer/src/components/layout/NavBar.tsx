@@ -1,5 +1,6 @@
 import { useUserStore } from '@store/userStore'
 import { useMessageStore } from '@store/messageStore'
+import { parseAvatar } from './Sidebar'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -43,18 +44,25 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
   // 计算所有会话的总未读消息数
   const totalUnreadCount = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0)
 
-  // 获取昵称首字
+  // 获取头像显示
+  const avatarEmoji = parseAvatar(userInfo?.avatar)
+  const isEmoji = avatarEmoji !== ''
   const avatarChar = userInfo?.nickname?.charAt(0) || '?'
 
   return (
     <div className="w-[var(--nav-w)] bg-[var(--bg-surface)] border-r border-[var(--border)] flex flex-col items-center py-2 gap-1 flex-shrink-0">
       {/* 用户头像 */}
       <button
-        className="w-8 h-8 rounded-full bg-[var(--accent)] text-white text-xs font-semibold flex items-center justify-center cursor-pointer mb-2 relative no-drag"
+        className="w-8 h-8 rounded-full text-xs font-semibold flex items-center justify-center cursor-pointer mb-2 relative no-drag overflow-hidden"
+        style={{ backgroundColor: isEmoji ? '#E5E7EB' : 'var(--accent)' }}
         title={userInfo?.nickname || '我的资料'}
         onClick={() => onNavigate('settings')}
       >
-        {avatarChar}
+        {isEmoji ? (
+          <span className="text-base">{avatarEmoji}</span>
+        ) : (
+          <span className="text-white">{avatarChar}</span>
+        )}
         <span
           className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-surface)]"
           style={{ backgroundColor: 'var(--status-online)' }}

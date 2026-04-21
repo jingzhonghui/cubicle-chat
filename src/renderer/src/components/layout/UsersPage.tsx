@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useUserStore } from '@store/userStore'
 import { useMessageStore } from '@store/messageStore'
+import { parseAvatar } from './Sidebar'
 
 interface UsersPageProps {
   onSelectUser: (userId: string) => void
@@ -9,12 +10,14 @@ interface UsersPageProps {
 // 头像组件
 function Avatar({
   name,
+  avatar,
   color,
   size = 'normal',
   showStatus,
   status
 }: {
   name: string
+  avatar?: string
   color: string
   size?: 'small' | 'normal' | 'large'
   showStatus?: boolean
@@ -33,13 +36,20 @@ function Avatar({
     offline: 'var(--status-offline)'
   }
 
+  const emoji = parseAvatar(avatar)
+  const isEmoji = emoji !== ''
+
   return (
     <div className={`relative ${sizeClasses[size].split(' ')[0]}`}>
       <div
-        className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0`}
-        style={{ backgroundColor: color }}
+        className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-semibold flex-shrink-0 overflow-hidden`}
+        style={{ backgroundColor: isEmoji ? '#E5E7EB' : color }}
       >
-        {name.charAt(0).toUpperCase()}
+        {isEmoji ? (
+          <span className={size === 'large' ? 'text-2xl' : size === 'small' ? 'text-base' : 'text-xl'}>{emoji}</span>
+        ) : (
+          <span className="text-white">{name.charAt(0).toUpperCase()}</span>
+        )}
       </div>
       {showStatus && status && (
         <span
@@ -81,6 +91,7 @@ function UserItem({
     <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--bg-base)] transition-colors cursor-default">
       <Avatar
         name={user.nickname}
+        avatar={user.avatar}
         color={colors[colorIndex]}
         size="normal"
         showStatus

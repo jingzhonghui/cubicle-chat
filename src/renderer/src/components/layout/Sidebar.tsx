@@ -5,6 +5,61 @@ import UsersPage from './UsersPage'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
+// 内置头像映射（与 SettingsPage.tsx 保持一致）
+const BUILTIN_AVATAR_MAP: Record<string, string> = {
+  'cat': '🐱',
+  'dog': '🐶',
+  'fox': '🦊',
+  'panda': '🐼',
+  'rabbit': '🐰',
+  'tiger': '🐯',
+  'lion': '🦁',
+  'bear': '🐻',
+  'koala': '🐨',
+  'pig': '🐷',
+  'monkey': '🐵',
+  'robot': '🤖',
+  'alien': '👽',
+  'ghost': '👻',
+  'ninja': '🥷',
+  'detective': '🕵️',
+  'astronaut': '👨‍🚀',
+  'scientist': '👨‍🔬',
+  'artist': '👨‍🎨',
+  'chef': '👨‍🍳',
+  'student': '👨‍🎓',
+  'business': '👨‍💼',
+  'worker': '👨‍🔧',
+  'farmer': '👨‍🌾',
+  'pilot': '👨‍✈️',
+  'police': '👮',
+  'firefighter': '👨‍🚒',
+  'doctor': '👨‍⚕️',
+  'teacher': '👨‍🏫',
+  'judge': '👨‍⚖️',
+  'superhero': '🦸',
+  'vampire': '🧛',
+  'mage': '🧙',
+  'fairy': '🧚',
+  'angel': '👼',
+  'devil': '😈',
+  'clown': '🤡',
+  'skull': '💀',
+  'poo': '💩'
+}
+
+// 解析头像（返回 emoji 或空字符串表示使用默认首字母）
+export function parseAvatar(avatar?: string): string {
+  if (!avatar || avatar === 'default' || avatar === '') {
+    return ''
+  }
+  // 兼容旧数据：如果 avatar 是 base64 图片，返回空（使用默认）
+  if (avatar.startsWith('data:')) {
+    return ''
+  }
+  return BUILTIN_AVATAR_MAP[avatar] || ''
+}
+
 interface SidebarProps {
   currentPage: PageType
   selectedConversationId: string | null
@@ -15,12 +70,14 @@ interface SidebarProps {
 function Avatar({
   name,
   color,
+  avatar,
   size = 'normal',
   showStatus,
   status
 }: {
   name: string
   color: string
+  avatar?: string
   size?: 'small' | 'normal' | 'large'
   showStatus?: boolean
   status?: string
@@ -38,13 +95,20 @@ function Avatar({
     offline: 'var(--status-offline)'
   }
 
+  const emoji = parseAvatar(avatar)
+  const isEmoji = emoji !== ''
+
   return (
     <div className={`relative ${sizeClasses[size].split(' ')[0]}`}>
       <div
-        className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0`}
-        style={{ backgroundColor: color }}
+        className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-semibold flex-shrink-0 overflow-hidden`}
+        style={{ backgroundColor: isEmoji ? '#E5E7EB' : color }}
       >
-        {name.charAt(0)}
+        {isEmoji ? (
+          <span className={size === 'small' ? 'text-base' : size === 'large' ? 'text-base' : 'text-xl'}>{emoji}</span>
+        ) : (
+          <span className="text-white">{name.charAt(0)}</span>
+        )}
       </div>
       {showStatus && status && (
         <span
@@ -168,6 +232,7 @@ function SessionItem({
       <Avatar
         name={conversation.targetName}
         color={colors[colorIndex]}
+        avatar={conversation.targetAvatar}
         showStatus={!!conversation.targetStatus}
         status={conversation.targetStatus}
       />

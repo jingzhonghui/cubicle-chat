@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useMessageStore, Message } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import MessageBubble from '@components/chat/MessageBubble'
+import { parseAvatar } from './Sidebar'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -51,7 +52,7 @@ function SelectUserHint(): JSX.Element {
 }
 
 // 聊天头组件
-function ChatHeader({ targetName, targetStatus, onSearchClick }: { targetName: string; targetStatus?: string; onSearchClick?: () => void }): JSX.Element {
+function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void }): JSX.Element {
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = targetName.charCodeAt(0) % colors.length
 
@@ -69,13 +70,20 @@ function ChatHeader({ targetName, targetStatus, onSearchClick }: { targetName: s
     offline: '离线'
   }
 
+  const emoji = parseAvatar(targetAvatar)
+  const isEmoji = emoji !== ''
+
   return (
     <div className="h-12 bg-[var(--bg-surface)] border-b border-[var(--border)] flex items-center px-4 gap-2.5 flex-shrink-0">
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold text-white"
-        style={{ backgroundColor: colors[colorIndex] }}
+        className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold overflow-hidden"
+        style={{ backgroundColor: isEmoji ? '#E5E7EB' : colors[colorIndex] }}
       >
-        {targetName.charAt(0)}
+        {isEmoji ? (
+          <span className="text-base">{emoji}</span>
+        ) : (
+          <span className="text-white">{targetName.charAt(0)}</span>
+        )}
       </div>
       <div className="flex-1">
         <div className="text-sm font-semibold text-[var(--text-primary)]">{targetName}</div>
@@ -689,6 +697,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       {/* 聊天头 */}
       <ChatHeader
         targetName={currentConversation.targetName}
+        targetAvatar={currentConversation.targetAvatar}
         targetStatus={currentConversation.targetStatus}
         onSearchClick={() => setShowSearch(true)}
       />
