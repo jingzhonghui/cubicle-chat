@@ -333,7 +333,9 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         // 如果没有路径（从剪贴板粘贴的图片），先保存为临时文件
         if (!filePath) {
           const dataUrl = await readFileAsDataURL(file)
-          const fileName = file.name || `clipboard-${Date.now()}.png`
+          // 始终生成唯一的文件名，避免覆盖（截图工具可能设置相同的默认文件名如 image.png）
+          const ext = file.name?.split('.').pop() || 'png'
+          const fileName = `clipboard-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`
           const result = await window.electronAPI.invoke<{ success: boolean; filePath?: string; error?: string }>('file:saveClipboardImage', {
             imageData: dataUrl,
             fileName
