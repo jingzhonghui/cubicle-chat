@@ -14,6 +14,7 @@ export interface UserInfo {
 
 export interface OnlineUser {
   userId: string
+  macAddress: string  // MAC 地址作为设备唯一标识
   nickname: string
   ip: string
   port: number
@@ -111,6 +112,7 @@ export class DatabaseService {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
+        mac_address TEXT UNIQUE,  -- MAC 地址作为设备唯一标识
         nickname TEXT NOT NULL,
         avatar TEXT,
         status TEXT NOT NULL DEFAULT 'online',
@@ -198,12 +200,21 @@ export class DatabaseService {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_users_ip ON users(ip_address);
       CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+      CREATE INDEX IF NOT EXISTS idx_users_mac ON users(mac_address);
       CREATE INDEX IF NOT EXISTS idx_conversations_target ON conversations(target_id);
       CREATE INDEX IF NOT EXISTS idx_conversations_last_msg ON conversations(last_message_at DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, sent_at DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
       CREATE INDEX IF NOT EXISTS idx_messages_file ON messages(file_id);
     `)
+
+    // 迁移：添加 mac_address 列（如果表已存在但没有该列）
+    try {
+      this.db.exec(`ALTER TABLE users ADD COLUMN mac_address TEXT UNIQUE`)
+      log.info('数据库迁移：添加 mac_address 列')
+    } catch (e) {
+      // 列已存在，忽略错误
+    }
 
     log.info('数据库表创建完成')
   }
@@ -270,7 +281,7 @@ export class DatabaseService {
 
     if (!userId || !nickname) return null
 
-    return { userId, nickname, avatar, status }
+    return { userId, nickname, avatar: avatar || undefined, status }
   }
 
   updateUserInfo(info: Partial<UserInfo>): boolean {
@@ -327,19 +338,26 @@ export class DatabaseService {
   saveUser(user: OnlineUser): void {
     if (!this.db) return
 
-    // 检查用户是否已存在
-    const existing = this.db.prepare('SELECT first_seen_at FROM users WHERE user_id = ?').get(user.userId) as { first_seen_at: number } | undefined
+    // 检查用户是否已存在（通过 MAC 地址或 userId）
+    let existing = null
+    if (user.macAddress && user.macAddress !== '00:00:00:00:00:00') {
+      existing = this.db.prepare('SELECT first_seen_at FROM users WHERE mac_address = ?').get(user.macAddress) as { first_seen_at: number } | undefined
+    }
+    if (!existing) {
+      existing = this.db.prepare('SELECT first_seen_at FROM users WHERE user_id = ?').get(user.userId) as { first_seen_at: number } | undefined
+    }
     const firstSeenAt = existing?.first_seen_at || user.lastHeartbeat
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO users (
-        user_id, nickname, avatar, status, ip_address, udp_port, tcp_port,
+        user_id, mac_address, nickname, avatar, status, ip_address, udp_port, tcp_port,
         client_version, last_seen_at, first_seen_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
       user.userId,
+      user.macAddress || null,
       user.nickname,
       user.avatar || null,
       user.status,

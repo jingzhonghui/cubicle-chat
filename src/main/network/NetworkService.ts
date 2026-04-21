@@ -8,6 +8,7 @@ import log from 'electron-log'
 import { DatabaseService, FileRecord } from '../database/DatabaseService'
 import { TcpTransferService, FileTransfer, generateTransferId } from './TcpTransferService'
 import { app } from 'electron'
+import { getPrimaryMacAddress, generateUserIdFromMac } from '../utils'
 
 // 包类型
 export type PacketType =
@@ -36,6 +37,7 @@ export interface UdpPacket {
   timestamp: number
   from: {
     userId: string
+    macAddress: string  // MAC 地址作为设备唯一标识
     nickname: string
     ip: string
     port: number
@@ -48,6 +50,7 @@ export interface UdpPacket {
 
 export interface OnlineUser {
   userId: string
+  macAddress: string  // MAC 地址作为设备唯一标识
   nickname: string
   ip: string
   port: number
@@ -99,25 +102,53 @@ export class NetworkService {
   private isManualInterface: boolean = false // 标记是否手动设置了网卡
   private customBroadcastAddresses: string[] = [] // 用户自定义广播地址列表
 
+  private selfMacAddress: string = ''  // 本机 MAC 地址
+
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService, callbacks?: NetworkServiceCallbacks) {
     this.mainWindow = mainWindow
     this.databaseService = databaseService
     this.callbacks = callbacks || {}
 
+    // 获取主网卡 MAC 地址
+    const macAddress = getPrimaryMacAddress()
+    this.selfMacAddress = macAddress || '00:00:00:00:00:00'
+
     // 获取本机用户信息
     let userInfo = this.databaseService.getUserInfo()
-    
+
+    // 如果没有 MAC 地址记录，保存当前 MAC 地址
+    const savedMac = this.databaseService.getSetting('user.macAddress')
+    if (!savedMac && macAddress) {
+      this.databaseService.setSetting('user.macAddress', macAddress)
+    }
+
     // 如果用户信息不存在，创建并保存到数据库
+    // 使用 MAC 地址生成 userId，确保同一台电脑重新安装后 userId 相同
     if (!userInfo) {
-      const userId = uuidv4()
+      const userId = generateUserIdFromMac(macAddress)
       const nickname = os.hostname()
       this.databaseService.setSetting('user.userId', userId)
       this.databaseService.setSetting('user.nickname', nickname)
       this.databaseService.setSetting('user.status', 'online')
+      if (macAddress) {
+        this.databaseService.setSetting('user.macAddress', macAddress)
+      }
       userInfo = { userId, nickname, status: 'online' }
-      log.info('创建新用户信息:', { userId, nickname })
+      log.info('创建新用户信息:', { userId, nickname, macAddress })
+    } else {
+      // 检查是否需要更新 userId（从旧版本升级的情况）
+      const expectedUserId = generateUserIdFromMac(savedMac || macAddress)
+      if (savedMac && userInfo.userId !== expectedUserId) {
+        log.info('检测到 userId 与 MAC 地址不匹配，更新 userId:', {
+          old: userInfo.userId,
+          new: expectedUserId
+        })
+        this.databaseService.setSetting('user.userId', expectedUserId)
+        userInfo.userId = expectedUserId
+      }
+      log.info('使用现有用户信息:', { userId: userInfo.userId, nickname: userInfo.nickname, macAddress: savedMac || macAddress })
     }
-    
+
     this.selfUserId = userInfo.userId
     this.selfNickname = userInfo.nickname
     this.selfStatus = userInfo.status ?? 'online'
@@ -263,7 +294,7 @@ export class NetworkService {
           // ONLINE_ACK 不需要再回复，避免无限循环
           break
         case 'OFFLINE':
-          this.handleUserOffline(packet.from.userId)
+          this.handleUserOffline(packet.from.macAddress || packet.from.userId)
           break
         case 'TEXT':
           this.handleTextMessage(packet)
@@ -293,8 +324,12 @@ export class NetworkService {
   }
 
   private handleUserOnline(packet: UdpPacket): void {
+    // 使用 MAC 地址作为主键识别用户
+    const macAddress = packet.from.macAddress || packet.from.userId
+    
     const user: OnlineUser = {
       userId: packet.from.userId,
+      macAddress: macAddress,
       nickname: packet.from.nickname,
       ip: packet.from.ip,
       port: packet.from.port,
@@ -304,10 +339,26 @@ export class NetworkService {
       version: packet.from.version
     }
 
-    const isNew = !this.onlineUsers.has(user.userId)
-    this.onlineUsers.set(user.userId, user)
+    // 检查是否已存在相同 MAC 地址的用户
+    const existingUser = this.findUserByMacAddress(macAddress)
+    const isNew = !existingUser
 
-    log.info(`处理用户上线: ${user.nickname} (${user.ip}), isNew=${isNew}, onlineUsersCount=${this.onlineUsers.size}`)
+    if (existingUser) {
+      // 更新现有用户信息（保留 userId 不变，但更新其他信息）
+      existingUser.userId = packet.from.userId  // 可能从旧版本升级
+      existingUser.nickname = packet.from.nickname
+      existingUser.ip = packet.from.ip
+      existingUser.port = packet.from.port
+      existingUser.avatar = packet.from.avatar
+      existingUser.status = packet.from.status
+      existingUser.lastHeartbeat = Date.now()
+      existingUser.version = packet.from.version
+      log.info(`更新用户(通过MAC): ${user.nickname} (${user.ip}), mac=${macAddress}, avatar=${user.avatar}`)
+    } else {
+      // 新用户
+      this.onlineUsers.set(macAddress, user)
+      log.info(`新用户上线: ${user.nickname} (${user.ip}), mac=${macAddress}, avatar=${user.avatar}, onlineUsersCount=${this.onlineUsers.size}`)
+    }
 
     // 保存到数据库
     this.databaseService.saveUser(user)
@@ -319,7 +370,7 @@ export class NetworkService {
         this.mainWindow.webContents.send('user:online', user)
       } else {
         log.debug(`发送 user:update 事件到渲染进程: ${user.nickname}`)
-        this.mainWindow.webContents.send('user:update', user)
+        this.mainWindow.webContents.send('user:update', existingUser || user)
       }
     } else {
       log.warn(`窗口不可用，无法发送用户上线事件: ${user.nickname}`)
@@ -327,11 +378,32 @@ export class NetworkService {
     // 注意：ACK 回复在 switch 语句中处理，避免无限循环
   }
 
-  private handleUserOffline(userId: string): void {
-    if (this.onlineUsers.has(userId)) {
-      this.onlineUsers.delete(userId)
+  /**
+   * 通过 MAC 地址查找用户
+   */
+  private findUserByMacAddress(macAddress: string): OnlineUser | undefined {
+    // 首先尝试直接通过 MAC 地址查找
+    if (this.onlineUsers.has(macAddress)) {
+      return this.onlineUsers.get(macAddress)
+    }
+    
+    // 兼容旧版本：遍历查找（如果用户使用了旧版本发送的消息没有 MAC 地址）
+    for (const user of this.onlineUsers.values()) {
+      if (user.macAddress === macAddress) {
+        return user
+      }
+    }
+    
+    return undefined
+  }
+
+  private handleUserOffline(macAddress: string): void {
+    // 使用 MAC 地址查找用户
+    const user = this.findUserByMacAddress(macAddress)
+    if (user) {
+      this.onlineUsers.delete(user.macAddress)
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('user:offline', { userId })
+        this.mainWindow.webContents.send('user:offline', { macAddress: user.macAddress })
       }
     }
   }
@@ -433,19 +505,46 @@ export class NetworkService {
   }
 
   private handleStatusChange(packet: UdpPacket): void {
-    const user = this.onlineUsers.get(packet.from.userId)
+    log.info(`收到状态变更: from=${packet.from.nickname}, avatar=${packet.from.avatar}, status=${packet.from.status}`)
+    
+    // 使用 MAC 地址识别用户
+    const macAddress = packet.from.macAddress || packet.from.userId
+    let user = this.findUserByMacAddress(macAddress)
+    const isNew = !user
+
     if (user) {
-      // 更新用户信息
+      // 更新现有用户信息
+      user.userId = packet.from.userId
       user.nickname = packet.from.nickname
       user.avatar = packet.from.avatar
       user.status = packet.from.status
       user.lastHeartbeat = Date.now()
-      
-      // 保存到数据库
-      this.databaseService.saveUser(user)
-      
-      // 通知渲染进程
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      log.info(`更新现有用户头像: ${user.nickname}, mac=${macAddress}, avatar=${user.avatar}`)
+    } else {
+      // 用户不在列表中，创建新用户记录
+      user = {
+        userId: packet.from.userId,
+        macAddress: macAddress,
+        nickname: packet.from.nickname,
+        ip: packet.from.ip,
+        port: packet.from.port,
+        avatar: packet.from.avatar,
+        status: packet.from.status,
+        lastHeartbeat: Date.now(),
+        version: packet.from.version
+      }
+      this.onlineUsers.set(macAddress, user)
+      log.info(`创建新用户: ${user.nickname}, mac=${macAddress}, avatar=${user.avatar}`)
+    }
+
+    // 保存到数据库
+    this.databaseService.saveUser(user)
+
+    // 通知渲染进程
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      if (isNew) {
+        this.mainWindow.webContents.send('user:online', user)
+      } else {
         this.mainWindow.webContents.send('user:update', user)
       }
     }
@@ -630,6 +729,7 @@ export class NetworkService {
       timestamp: Date.now(),
       from: {
         userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: this.tcpPort,
@@ -801,6 +901,7 @@ export class NetworkService {
         timestamp: now,
         from: {
           userId: this.selfUserId,
+          macAddress: this.selfMacAddress,
           nickname: this.selfNickname,
           ip: this.localIP || this.getLocalIP(),
           port: this.tcpPort,
@@ -1260,9 +1361,9 @@ export class NetworkService {
   private startCleanup(): void {
     this.cleanupTimer = setInterval(() => {
       const now = Date.now()
-      this.onlineUsers.forEach((user, userId) => {
+      this.onlineUsers.forEach((user, macAddress) => {
         if (now - user.lastHeartbeat > HEARTBEAT_TIMEOUT) {
-          this.handleUserOffline(userId)
+          this.handleUserOffline(macAddress)
         }
       })
     }, 10000)
@@ -1283,6 +1384,7 @@ export class NetworkService {
       timestamp: Date.now(),
       from: {
         userId: this.selfUserId,
+        macAddress: this.selfMacAddress,  // 包含 MAC 地址
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: TCP_PORT,
@@ -1515,6 +1617,7 @@ export class NetworkService {
       timestamp: now,
       from: {
         userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
         nickname: this.selfNickname,
         ip: this.localIP || this.getLocalIP(),
         port: TCP_PORT,
@@ -1551,6 +1654,7 @@ export class NetworkService {
       this.selfAvatar = userInfo.avatar
     }
     // 广播状态变更
+    log.info(`广播状态变更: nickname=${this.selfNickname}, avatar=${this.selfAvatar}, status=${this.selfStatus}`)
     this.sendPacket('STATUS_CHANGE', {})
   }
 

@@ -8,6 +8,7 @@ export interface UserInfo {
 }
 
 export interface OnlineUser extends UserInfo {
+  macAddress: string  // MAC 地址作为设备唯一标识
   ip: string
   port: number
   lastSeenAt: number
@@ -71,11 +72,12 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
   addOnlineUser: (user: OnlineUser) => {
     set((state) => {
-      const exists = state.onlineUsers.some((u) => u.userId === user.userId)
+      // 使用 MAC 地址去重
+      const exists = state.onlineUsers.some((u) => u.macAddress === user.macAddress)
       if (exists) {
         return {
           onlineUsers: state.onlineUsers.map((u) =>
-            u.userId === user.userId ? user : u
+            u.macAddress === user.macAddress ? user : u
           )
         }
       }
@@ -83,16 +85,16 @@ export const useUserStore = create<UserStore>((set, get) => ({
     })
   },
 
-  removeOnlineUser: (userId: string) => {
+  removeOnlineUser: (macAddress: string) => {
     set((state) => ({
-      onlineUsers: state.onlineUsers.filter((u) => u.userId !== userId)
+      onlineUsers: state.onlineUsers.filter((u) => u.macAddress !== macAddress)
     }))
   },
 
   updateOnlineUser: (user: OnlineUser) => {
     set((state) => ({
       onlineUsers: state.onlineUsers.map((u) =>
-        u.userId === user.userId ? user : u
+        u.macAddress === user.macAddress ? user : u
       )
     }))
   }
@@ -106,17 +108,20 @@ export function initUserStoreListeners(): () => void {
 
   console.log('[UserStore] 初始化事件监听')
 
-  const unsubscribeOnline = window.electronAPI.on('user:online', (user: OnlineUser) => {
+  const unsubscribeOnline = window.electronAPI.on('user:online', (...args: unknown[]) => {
+    const user = args[0] as OnlineUser
     console.log('[UserStore] 收到 user:online 事件:', user.nickname)
     useUserStore.getState().addOnlineUser(user)
   })
 
-  const unsubscribeOffline = window.electronAPI.on('user:offline', (data: { userId: string }) => {
-    console.log('[UserStore] 收到 user:offline 事件:', data.userId)
-    useUserStore.getState().removeOnlineUser(data.userId)
+  const unsubscribeOffline = window.electronAPI.on('user:offline', (...args: unknown[]) => {
+    const data = args[0] as { macAddress: string }
+    console.log('[UserStore] 收到 user:offline 事件:', data.macAddress)
+    useUserStore.getState().removeOnlineUser(data.macAddress)
   })
 
-  const unsubscribeUpdate = window.electronAPI.on('user:update', (user: OnlineUser) => {
+  const unsubscribeUpdate = window.electronAPI.on('user:update', (...args: unknown[]) => {
+    const user = args[0] as OnlineUser
     console.log('[UserStore] 收到 user:update 事件:', user.nickname)
     useUserStore.getState().updateOnlineUser(user)
   })
