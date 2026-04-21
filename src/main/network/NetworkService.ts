@@ -273,7 +273,7 @@ export class NetworkService {
 
       // 过滤自己的消息
       if (packet.from.userId === this.selfUserId) {
-        log.debug('过滤自己的消息')
+        // log.debug('过滤自己的消息')
         return
       }
 
@@ -366,10 +366,8 @@ export class NetworkService {
     // 通知渲染进程（检查窗口是否可用）
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       if (isNew) {
-        log.info(`发送 user:online 事件到渲染进程: ${user.nickname}`)
         this.mainWindow.webContents.send('user:online', user)
       } else {
-        log.debug(`发送 user:update 事件到渲染进程: ${user.nickname}`)
         this.mainWindow.webContents.send('user:update', existingUser || user)
       }
     } else {

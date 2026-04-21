@@ -63,7 +63,7 @@ export function parseAvatar(avatar?: string): string {
 interface SidebarProps {
   currentPage: PageType
   selectedConversationId: string | null
-  onSelectConversation: (conversationId: string) => void
+  onSelectConversation: (conversationId: string | null) => void
 }
 
 // 会话头像组件
@@ -126,14 +126,20 @@ function ContextMenu({
   y,
   onClose,
   onDelete,
-  onClearAll
+  onClearAll,
+  showDelete,
+  showClearAll
 }: {
   x: number
   y: number
   onClose: () => void
   onDelete: () => void
   onClearAll: () => void
+  showDelete: boolean
+  showClearAll: boolean
 }): JSX.Element {
+  console.log('[ContextMenu] 渲染', { showDelete, showClearAll })
+  
   useEffect(() => {
     const handleClick = () => onClose()
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -153,26 +159,30 @@ function ContextMenu({
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
-        onClick={() => {
-          onClearAll()
-          onClose()
-        }}
-      >
-        <span>🧹</span>
-        <span>清空列表</span>
-      </button>
-      <button
-        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
-        onClick={() => {
-          onDelete()
-          onClose()
-        }}
-      >
-        <span>🗑️</span>
-        <span>删除会话</span>
-      </button>
+      {showClearAll && (
+        <button
+          className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+          onClick={() => {
+            onClearAll()
+            onClose()
+          }}
+        >
+          <span>🧹</span>
+          <span>清空列表</span>
+        </button>
+      )}
+      {showDelete && (
+        <button
+          className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+          onClick={() => {
+            onDelete()
+            onClose()
+          }}
+        >
+          <span>🗑️</span>
+          <span>删除会话</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -196,7 +206,7 @@ function SessionItem({
   }
   isActive: boolean
   onClick: () => void
-  onContextMenu: (e: React.MouseEvent) => void
+  onContextMenu: (e: React.MouseEvent, conversationId?: string) => void
 }): JSX.Element {
   const formatTime = (timestamp?: number): string => {
     if (!timestamp) return ''
@@ -260,7 +270,7 @@ function SessionItem({
 
 function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: SidebarProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conversationId: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conversationId: string | undefined } | null>(null)
   const { conversations, createConversation, deleteConversation } = useMessageStore()
   const { onlineUsers } = useUserStore()
 
@@ -291,6 +301,8 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
   // 右键菜单
   const handleContextMenu = (e: React.MouseEvent, conversationId?: string) => {
     e.preventDefault()
+    e.stopPropagation()
+    console.log('[Sidebar] 右键点击', { conversationId, x: e.clientX, y: e.clientY })
     setContextMenu({ x: e.clientX, y: e.clientY, conversationId })
   }
 
@@ -311,7 +323,7 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
       await deleteConversation(conversationId)
       // 如果删除的是当前选中的会话，清除选中状态
       if (selectedConversationId === conversationId) {
-        onSelectConversation('')
+        onSelectConversation(null)
       }
     }
   }
@@ -324,7 +336,7 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
         await deleteConversation(conv.conversationId)
       }
       // 清除选中状态
-      onSelectConversation('')
+      onSelectConversation(null)
     }
   }
 
@@ -395,6 +407,8 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
             onClose={() => setContextMenu(null)}
             onDelete={() => handleDeleteConversation(contextMenu.conversationId)}
             onClearAll={handleClearAll}
+            showDelete={!!contextMenu.conversationId}
+            showClearAll={true}
           />
         )}
       </div>

@@ -51,7 +51,7 @@ function App(): JSX.Element {
     setCurrentPage(page)
   }
 
-  const handleSelectConversation = (conversationId: string) => {
+  const handleSelectConversation = (conversationId: string | null) => {
     setSelectedConversationId(conversationId)
     setCurrentConversation(conversationId)
     if (currentPage !== 'chat') {

@@ -6,7 +6,7 @@
   "author": "CubicleChat Team",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "chcp 65001 && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
