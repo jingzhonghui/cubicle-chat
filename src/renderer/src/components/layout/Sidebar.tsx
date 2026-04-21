@@ -138,8 +138,6 @@ function ContextMenu({
   showDelete: boolean
   showClearAll: boolean
 }): JSX.Element {
-  console.log('[ContextMenu] 渲染', { showDelete, showClearAll })
-  
   useEffect(() => {
     const handleClick = () => onClose()
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -302,7 +300,6 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
   const handleContextMenu = (e: React.MouseEvent, conversationId?: string) => {
     e.preventDefault()
     e.stopPropagation()
-    console.log('[Sidebar] 右键点击', { conversationId, x: e.clientX, y: e.clientY })
     setContextMenu({ x: e.clientX, y: e.clientY, conversationId })
   }
 

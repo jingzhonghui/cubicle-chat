@@ -384,14 +384,26 @@ export class NetworkService {
     if (this.onlineUsers.has(macAddress)) {
       return this.onlineUsers.get(macAddress)
     }
-    
+
     // 兼容旧版本：遍历查找（如果用户使用了旧版本发送的消息没有 MAC 地址）
     for (const user of this.onlineUsers.values()) {
       if (user.macAddress === macAddress) {
         return user
       }
     }
-    
+
+    return undefined
+  }
+
+  /**
+   * 通过 userId 查找用户
+   */
+  private findUserByUserId(userId: string): OnlineUser | undefined {
+    for (const user of this.onlineUsers.values()) {
+      if (user.userId === userId) {
+        return user
+      }
+    }
     return undefined
   }
 
@@ -770,7 +782,7 @@ export class NetworkService {
 
   // 发送文件
   async sendFile(to: string, filePath: string): Promise<{ success: boolean; transferId?: string; error?: string }> {
-    const targetUser = this.onlineUsers.get(to)
+    const targetUser = this.findUserByUserId(to)
     if (!targetUser) {
       return { success: false, error: '用户不在线' }
     }
@@ -946,11 +958,11 @@ export class NetworkService {
 
     log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}`)
 
-    const targetUser = this.onlineUsers.get(transfer.peerId)
+    const targetUser = this.findUserByUserId(transfer.peerId)
     if (!targetUser) {
       log.error(`用户不在线: ${transfer.peerId}`)
       // 列出所有在线用户
-      log.info(`在线用户: ${Array.from(this.onlineUsers.keys()).join(', ')}`)
+      log.info(`在线用户: ${Array.from(this.onlineUsers.values()).map(u => `${u.nickname}(${u.userId})`).join(', ')}`)
       return
     }
 
@@ -1556,7 +1568,7 @@ export class NetworkService {
     contentType: string
     replyTo?: string
   }): Promise<{ success: boolean; messageId?: string }> {
-    const targetUser = this.onlineUsers.get(data.to)
+    const targetUser = this.findUserByUserId(data.to)
     if (!targetUser) {
       log.warn('用户不在线:', data.to)
       return { success: false }

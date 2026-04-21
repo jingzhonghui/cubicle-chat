@@ -568,10 +568,20 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
       </div>
 
       {/* 底部 */}
-      <div className="flex items-center justify-end px-3 pb-2 pt-0.5">
+      <div className="flex items-center justify-between px-3 pb-2 pt-0.5">
         <span className="text-[11px] text-[var(--text-secondary)]">
           Enter 发送 · Shift+Enter 换行
         </span>
+        <button
+          onClick={handleSend}
+          disabled={!message.trim() || disabled}
+          className="px-4 py-1.5 bg-[var(--accent)] text-white text-[13px] font-medium rounded-md hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 border-none cursor-pointer"
+        >
+          <span>发送</span>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        </button>
       </div>
     </div>
   )
