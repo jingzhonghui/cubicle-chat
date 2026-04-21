@@ -384,7 +384,6 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
       case 'failed':
         return <span className="text-[12px] text-[var(--error)]">❌</span>
       case 'delivered':
-        return <span className="text-[12px] text-[var(--accent)]">✓✓</span>
       default:
         return <span className="text-[12px] text-[var(--accent)]">✓</span>
     }
