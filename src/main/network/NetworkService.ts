@@ -97,6 +97,7 @@ export class NetworkService {
   private tcpPort: number = TCP_PORT
   private callbacks: NetworkServiceCallbacks
   private isManualInterface: boolean = false // 标记是否手动设置了网卡
+  private customBroadcastAddresses: string[] = [] // 用户自定义广播地址列表
 
   constructor(mainWindow: BrowserWindow, databaseService: DatabaseService, callbacks?: NetworkServiceCallbacks) {
     this.mainWindow = mainWindow
@@ -128,6 +129,9 @@ export class NetworkService {
       try {
         // 从设置中加载网络接口配置
         this.loadInterfaceFromSettings()
+
+        // 从设置中加载自定义广播地址
+        this.loadCustomBroadcastAddresses()
 
         this.createUdpSocket()
         this.initTcpTransfer()
@@ -1148,6 +1152,100 @@ export class NetworkService {
     }
   }
 
+  // 从设置中加载自定义广播地址
+  loadCustomBroadcastAddresses(): void {
+    const addressesStr = this.databaseService.getSetting('network.customBroadcastAddresses')
+    if (addressesStr) {
+      try {
+        this.customBroadcastAddresses = JSON.parse(addressesStr)
+        log.info(`从设置加载自定义广播地址: ${this.customBroadcastAddresses.join(', ')}`)
+      } catch (error) {
+        log.error('解析自定义广播地址失败:', error)
+        this.customBroadcastAddresses = []
+      }
+    }
+  }
+
+  // 获取所有广播地址（默认 + 自定义）
+  getAllBroadcastAddresses(): string[] {
+    const addresses = new Set<string>()
+
+    // 添加默认广播地址
+    if (this.broadcastAddress) {
+      addresses.add(this.broadcastAddress)
+    }
+
+    // 添加受限广播地址（255.255.255.255）作为兜底
+    addresses.add('255.255.255.255')
+
+    // 添加自定义广播地址
+    this.customBroadcastAddresses.forEach(addr => {
+      if (this.isValidBroadcastAddress(addr)) {
+        addresses.add(addr)
+      }
+    })
+
+    return Array.from(addresses)
+  }
+
+  // 验证广播地址格式
+  private isValidBroadcastAddress(address: string): boolean {
+    const parts = address.split('.')
+    if (parts.length !== 4) return false
+
+    return parts.every(part => {
+      const num = parseInt(part, 10)
+      return !isNaN(num) && num >= 0 && num <= 255
+    })
+  }
+
+  // 获取自定义广播地址列表
+  getCustomBroadcastAddresses(): string[] {
+    return [...this.customBroadcastAddresses]
+  }
+
+  // 添加自定义广播地址
+  addCustomBroadcastAddress(address: string): { success: boolean; error?: string } {
+    // 验证地址格式
+    if (!this.isValidBroadcastAddress(address)) {
+      return { success: false, error: '无效的广播地址格式' }
+    }
+
+    // 检查是否已存在
+    if (this.customBroadcastAddresses.includes(address)) {
+      return { success: false, error: '该广播地址已存在' }
+    }
+
+    // 添加到列表
+    this.customBroadcastAddresses.push(address)
+
+    // 保存到数据库
+    this.saveCustomBroadcastAddresses()
+
+    log.info(`添加自定义广播地址: ${address}`)
+    return { success: true }
+  }
+
+  // 删除自定义广播地址
+  removeCustomBroadcastAddress(address: string): { success: boolean; error?: string } {
+    const index = this.customBroadcastAddresses.indexOf(address)
+    if (index === -1) {
+      return { success: false, error: '该广播地址不存在' }
+    }
+
+    this.customBroadcastAddresses.splice(index, 1)
+    this.saveCustomBroadcastAddresses()
+
+    log.info(`删除自定义广播地址: ${address}`)
+    return { success: true }
+  }
+
+  // 保存自定义广播地址到数据库
+  private saveCustomBroadcastAddresses(): void {
+    const addressesStr = JSON.stringify(this.customBroadcastAddresses)
+    this.databaseService.setSetting('network.customBroadcastAddresses', addressesStr)
+  }
+
   private broadcastOnline(): void {
     log.info(`发送上线广播: localIP=${this.localIP}, broadcastAddress=${this.broadcastAddress}`)
     this.sendPacket('ONLINE', {})
@@ -1199,19 +1297,24 @@ export class NetworkService {
   }
 
   private sendPacketDirect(packet: UdpPacket): void {
-    if (!this.udpSocket || !this.broadcastAddress) {
-      log.warn('UDP socket 未就绪或广播地址未设置')
+    if (!this.udpSocket) {
+      log.warn('UDP socket 未就绪')
       return
     }
 
     const buffer = this.encodePacket(packet)
+    const addresses = this.getAllBroadcastAddresses()
 
-    // 发送到广播地址
-    this.udpSocket.send(buffer, UDP_PORT, this.broadcastAddress, (err) => {
-      if (err) {
-        log.error('发送广播失败:', err)
-      }
-    })
+    log.debug(`向 ${addresses.length} 个广播地址发送数据包: ${packet.type}`)
+
+    // 向所有广播地址发送
+    for (const address of addresses) {
+      this.udpSocket.send(buffer, UDP_PORT, address, (err) => {
+        if (err) {
+          log.debug(`发送广播到 ${address} 失败:`, err)
+        }
+      })
+    }
   }
 
   private encodePacket(packet: UdpPacket): Buffer {

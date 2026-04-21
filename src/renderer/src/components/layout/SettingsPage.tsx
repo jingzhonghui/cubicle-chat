@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useSettingsStore, type Theme, type Language, type UserStatus } from '@store/settingsStore'
 import { useUserStore } from '@store/userStore'
 
@@ -408,6 +408,12 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
   const [currentInterface, setCurrentInterface] = useState<NetworkInterface | null>(null)
   const [isSwitchingInterface, setIsSwitchingInterface] = useState(false)
 
+  // 自定义广播地址状态
+  const [customBroadcastAddresses, setCustomBroadcastAddresses] = useState<string[]>([])
+  const [allBroadcastAddresses, setAllBroadcastAddresses] = useState<string[]>([])
+  const [newBroadcastAddress, setNewBroadcastAddress] = useState('')
+  const [isAddingAddress, setIsAddingAddress] = useState(false)
+
   // 加载网卡列表
   const loadNetworkInterfaces = async (includeVirtual = false) => {
     try {
@@ -417,6 +423,78 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
       setCurrentInterface(current)
     } catch (error) {
       console.error('加载网卡列表失败:', error)
+    }
+  }
+
+  // 加载广播地址列表
+  const loadBroadcastAddresses = async () => {
+    try {
+      const custom = await window.electronAPI.invoke<string[]>('network:getCustomBroadcastAddresses')
+      const all = await window.electronAPI.invoke<string[]>('network:getAllBroadcastAddresses')
+      setCustomBroadcastAddresses(custom)
+      setAllBroadcastAddresses(all)
+    } catch (error) {
+      console.error('加载广播地址失败:', error)
+    }
+  }
+
+  // 添加自定义广播地址
+  const handleAddBroadcastAddress = async () => {
+    if (!newBroadcastAddress.trim()) return
+
+    // 验证 IP 地址格式
+    const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/
+    if (!ipPattern.test(newBroadcastAddress.trim())) {
+      alert('请输入有效的广播地址，格式如：172.16.7.255')
+      return
+    }
+
+    setIsAddingAddress(true)
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>(
+        'network:addCustomBroadcastAddress',
+        newBroadcastAddress.trim()
+      )
+
+      if (result.success) {
+        setNewBroadcastAddress('')
+        await loadBroadcastAddresses()
+        setSaveStatus('saved')
+      } else {
+        alert(`添加失败: ${result.error || '未知错误'}`)
+        setSaveStatus('error')
+      }
+    } catch (error) {
+      console.error('添加广播地址失败:', error)
+      alert('添加失败，请重试')
+      setSaveStatus('error')
+    } finally {
+      setIsAddingAddress(false)
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }
+  }
+
+  // 删除自定义广播地址
+  const handleRemoveBroadcastAddress = async (address: string) => {
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>(
+        'network:removeCustomBroadcastAddress',
+        address
+      )
+
+      if (result.success) {
+        await loadBroadcastAddresses()
+        setSaveStatus('saved')
+      } else {
+        alert(`删除失败: ${result.error || '未知错误'}`)
+        setSaveStatus('error')
+      }
+    } catch (error) {
+      console.error('删除广播地址失败:', error)
+      alert('删除失败，请重试')
+      setSaveStatus('error')
+    } finally {
+      setTimeout(() => setSaveStatus('idle'), 2000)
     }
   }
 
@@ -430,10 +508,11 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
   // 获取显示虚拟网卡设置
   const showVirtualInterfaces = settings['network.showVirtualInterfaces'] === true
 
-  // 当切换到网络设置标签时，刷新网卡列表
+  // 当切换到网络设置标签时，刷新网卡列表和广播地址
   useEffect(() => {
     if (isActive && activeSection === 'network') {
       loadNetworkInterfaces(showVirtualInterfaces)
+      loadBroadcastAddresses()
     }
   }, [isActive, activeSection, showVirtualInterfaces])
 
@@ -832,10 +911,121 @@ function SettingsPage({ isActive }: SettingsPageProps): JSX.Element {
                     </div>
                   </SettingGroup>
 
+                  <SettingGroup title="跨网段广播" icon="📡">
+                    <div className="py-3">
+                      <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
+                        当前广播地址
+                      </label>
+                      <div className="space-y-1.5">
+                        {allBroadcastAddresses.map((addr) => (
+                          <div
+                            key={addr}
+                            className="flex items-center justify-between px-3 py-2 bg-[var(--bg-input)] rounded-lg"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">
+                                {addr === '255.255.255.255' ? '🌍' : '📡'}
+                              </span>
+                              <span className="text-sm text-[var(--text-primary)] font-mono">
+                                {addr}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {addr === currentInterface?.broadcast && (
+                                <span className="text-xs px-2 py-0.5 bg-[var(--accent-light)] text-[var(--accent)] rounded-full">
+                                  当前网段
+                                </span>
+                              )}
+                              {addr === '255.255.255.255' && (
+                                <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                                  受限广播
+                                </span>
+                              )}
+                              {customBroadcastAddresses.includes(addr) && (
+                                <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
+                                  自定义
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
+                        程序会向以上所有地址发送广播以发现其他网段的用户
+                      </p>
+                    </div>
+
+                    <div className="border-t border-[var(--border)]">
+                      <div className="py-3">
+                        <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
+                          添加自定义广播地址
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newBroadcastAddress}
+                            onChange={(e) => setNewBroadcastAddress(e.target.value)}
+                            placeholder="例如：172.16.7.255"
+                            className="flex-1 px-3 py-2 bg-[var(--bg-input)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-disabled)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-colors"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleAddBroadcastAddress()
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={handleAddBroadcastAddress}
+                            disabled={isAddingAddress || !newBroadcastAddress.trim()}
+                            className="px-4 py-2 bg-[var(--accent)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isAddingAddress ? '添加中...' : '添加'}
+                          </button>
+                        </div>
+                        <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
+                          输入其他网段的广播地址（如 172.16.7.255），用于发现该网段的用户
+                        </p>
+                      </div>
+                    </div>
+
+                    {customBroadcastAddresses.length > 0 && (
+                      <div className="border-t border-[var(--border)]">
+                        <div className="py-3">
+                          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1.5">
+                            自定义地址列表
+                          </label>
+                          <div className="space-y-2">
+                            {customBroadcastAddresses.map((addr) => (
+                              <div
+                                key={addr}
+                                className="flex items-center justify-between px-3 py-2 bg-[var(--bg-input)] rounded-lg"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm">📡</span>
+                                  <span className="text-sm text-[var(--text-primary)] font-mono">
+                                    {addr}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleRemoveBroadcastAddress(addr)}
+                                  className="text-xs px-2 py-1 text-[var(--error)] hover:bg-red-50 rounded transition-colors"
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </SettingGroup>
+
                   <div className="bg-[var(--accent-light)] rounded-xl p-4 mb-6">
                     <div className="text-sm font-medium text-[var(--accent)] mb-1">💡 提示</div>
                     <p className="text-xs text-[var(--text-secondary)]">
                       修改端口后需要重启应用才能生效。请确保所选端口未被其他程序占用。
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1">
+                      跨网段广播依赖路由器配置，如无法发现其他网段用户，请联系网管开启 directed-broadcast 功能。
                     </p>
                   </div>
                 </>

@@ -30,7 +30,11 @@ const invokeChannels = [
   'file:saveClipboardImage',
   'network:getInterfaces',
   'network:getCurrentInterface',
-  'network:switchInterface'
+  'network:switchInterface',
+  'network:getCustomBroadcastAddresses',
+  'network:addCustomBroadcastAddress',
+  'network:removeCustomBroadcastAddress',
+  'network:getAllBroadcastAddresses'
 ]
 
 const receiveChannels = [

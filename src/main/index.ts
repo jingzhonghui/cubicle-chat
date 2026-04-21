@@ -568,6 +568,25 @@ function registerIpcHandlers(): void {
     return result ?? { success: false, error: '网络服务未初始化' }
   })
 
+  // 自定义广播地址相关 IPC
+  ipcMain.handle('network:getCustomBroadcastAddresses', () => {
+    return networkService?.getCustomBroadcastAddresses() ?? []
+  })
+
+  ipcMain.handle('network:addCustomBroadcastAddress', (_, address: string) => {
+    const result = networkService?.addCustomBroadcastAddress(address)
+    return result ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('network:removeCustomBroadcastAddress', (_, address: string) => {
+    const result = networkService?.removeCustomBroadcastAddress(address)
+    return result ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('network:getAllBroadcastAddresses', () => {
+    return networkService?.getAllBroadcastAddresses() ?? []
+  })
+
   log.info('IPC 处理器注册完成')
 }
 
