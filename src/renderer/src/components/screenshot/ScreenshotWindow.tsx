@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 
 // 截图工具类型
-type ToolType = 'select' | 'rectangle' | 'arrow' | 'brush' | 'text' | 'mosaic'
+type ToolType = 'select' | 'rectangle' | 'arrow' | 'brush'
 
 // 标注元素
 interface Annotation {
@@ -46,9 +46,12 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isResizing, setIsResizing] = useState(false)
   const [resizeHandle, setResizeHandle] = useState<string | null>(null)
+  
+  // 标注矩形坐标（独立于选区，用于矩形/箭头工具的绘制预览）
+  const [annotationRect, setAnnotationRect] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
 
   // 工具状态
-  const [currentTool, setCurrentTool] = useState<ToolType>('rectangle')
+  const [currentTool, setCurrentTool] = useState<ToolType>('select')
   const [currentColor, setCurrentColor] = useState(COLORS[0])
   const [strokeWidth, setStrokeWidth] = useState(3)
 
@@ -56,9 +59,6 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [history, setHistory] = useState<Annotation[][]>([[]])
-
-  // 文字输入
-  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null)
 
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -72,6 +72,9 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     width: Math.abs(selectionEnd.x - selectionStart.x),
     height: Math.abs(selectionEnd.y - selectionStart.y)
   }
+  
+  // 是否已创建选区（用于控制完成按钮和标注工具）
+  const hasSelection = selection.width > 5 && selection.height > 5
 
   // 绘制背景和遮罩
   useEffect(() => {
@@ -179,7 +182,27 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     if (currentAnnotation) {
       drawAnnotation(ctx, currentAnnotation)
     }
-  }, [annotations, currentAnnotation, screenSize])
+
+    // 绘制矩形/箭头工具的实时预览
+    if (annotationRect && (currentTool === 'rectangle' || currentTool === 'arrow')) {
+      const { start, end } = annotationRect
+      ctx.strokeStyle = currentColor
+      ctx.lineWidth = strokeWidth
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      
+      if (currentTool === 'rectangle') {
+        ctx.strokeRect(
+          Math.min(start.x, end.x),
+          Math.min(start.y, end.y),
+          Math.abs(end.x - start.x),
+          Math.abs(end.y - start.y)
+        )
+      } else if (currentTool === 'arrow') {
+        drawArrow(ctx, start.x, start.y, end.x, end.y)
+      }
+    }
+  }, [annotations, currentAnnotation, annotationRect, currentTool, currentColor, strokeWidth, screenSize])
 
   // 绘制标注的辅助函数
   const drawAnnotation = (ctx: CanvasRenderingContext2D, ann: Annotation) => {
@@ -210,17 +233,6 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
           ctx.stroke()
         }
         break
-      case 'mosaic':
-        if (ann.points && ann.points.length > 1 && screenshotUrl) {
-          drawMosaic(ctx, ann.points, ann.strokeWidth)
-        }
-        break
-      case 'text':
-        if (ann.text && ann.rect) {
-          ctx.font = `${ann.strokeWidth * 6}px sans-serif`
-          ctx.fillText(ann.text, ann.rect.x, ann.rect.y)
-        }
-        break
     }
   }
 
@@ -229,75 +241,22 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     const headLength = 15
     const angle = Math.atan2(y2 - y1, x2 - x1)
 
+    // 计算线条终点（在线条端点处留出箭头头部位置）
+    const lineEndX = x2 - headLength * Math.cos(angle)
+    const lineEndY = y2 - headLength * Math.sin(angle)
+
     ctx.beginPath()
     ctx.moveTo(x1, y1)
-    ctx.lineTo(x2, y2)
+    ctx.lineTo(lineEndX, lineEndY)
     ctx.stroke()
 
+    // 绘制箭头头部
     ctx.beginPath()
     ctx.moveTo(x2, y2)
     ctx.lineTo(x2 - headLength * Math.cos(angle - Math.PI / 6), y2 - headLength * Math.sin(angle - Math.PI / 6))
     ctx.lineTo(x2 - headLength * Math.cos(angle + Math.PI / 6), y2 - headLength * Math.sin(angle + Math.PI / 6))
     ctx.closePath()
     ctx.fill()
-  }
-
-  // 绘制马赛克
-  const drawMosaic = (ctx: CanvasRenderingContext2D, points: { x: number; y: number }[], width: number) => {
-    if (!screenshotUrl) return
-
-    const img = new Image()
-    img.onload = () => {
-      // 获取像素数据
-      const tempCanvas = document.createElement('canvas')
-      tempCanvas.width = screenSize.width
-      tempCanvas.height = screenSize.height
-      const tempCtx = tempCanvas.getContext('2d')
-      if (!tempCtx) return
-
-      tempCtx.drawImage(img, 0, 0, screenSize.width, screenSize.height)
-
-      // 对每个点周围区域应用马赛克
-      const mosaicSize = width * 3
-      const halfSize = mosaicSize / 2
-
-      points.forEach(point => {
-        const sx = Math.max(0, Math.floor(point.x - halfSize))
-        const sy = Math.max(0, Math.floor(point.y - halfSize))
-        const sw = Math.min(mosaicSize, screenSize.width - sx)
-        const sh = Math.min(mosaicSize, screenSize.height - sy)
-
-        if (sw <= 0 || sh <= 0) return
-
-        const imageData = tempCtx.getImageData(sx, sy, sw, sh)
-        const data = imageData.data
-
-        // 简化像素（马赛克效果）
-        for (let y = 0; y < sh; y += 4) {
-          for (let x = 0; x < sw; x += 4) {
-            const i = (y * sw + x) * 4
-            const r = data[i]
-            const g = data[i + 1]
-            const b = data[i + 2]
-
-            for (let ny = 0; ny < 4 && y + ny < sh; ny++) {
-              for (let nx = 0; nx < 4 && x + nx < sw; nx++) {
-                const ni = ((y + ny) * sw + (x + nx)) * 4
-                data[ni] = r
-                data[ni + 1] = g
-                data[ni + 2] = b
-              }
-            }
-          }
-        }
-
-        tempCtx.putImageData(imageData, sx, sy)
-
-        // 绘制到主画布
-        ctx.drawImage(tempCanvas, sx, sy, sw, sh, sx, sy, sw, sh)
-      })
-    }
-    img.src = screenshotUrl
   }
 
   // 保存历史
@@ -356,42 +315,56 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     // ESC 取消
     if (e.button === 2) return
 
-    // 如果没有选区，开始选区
-    if (selection.width === 0 || currentTool !== 'select') {
-      if (currentTool === 'rectangle' || currentTool === 'arrow') {
+    // 选择工具逻辑
+    if (currentTool === 'select') {
+      // 如果已有选区，可以拖动调整
+      if (hasSelection) {
+        // 选区内的操作
+        if (isInSelection(x, y)) {
+          if (!isOnHandle(x, y)) {
+            // 拖动选区
+            setIsDragging(true)
+            setDragOffset({ x: x - selection.x, y: y - selection.y })
+          }
+        } else {
+          // 开始新的选区
+          setIsSelecting(true)
+          setSelectionStart({ x, y })
+          setSelectionEnd({ x, y })
+        }
+      } else {
+        // 没有选区时，点击创建选区
         setIsSelecting(true)
         setSelectionStart({ x, y })
         setSelectionEnd({ x, y })
-      } else if (currentTool === 'brush' || currentTool === 'mosaic') {
-        setIsSelecting(true)
-        setSelectionStart({ x, y })
-        setSelectionEnd({ x, y })
-        setCurrentAnnotation({
-          id: Date.now().toString(),
-          type: currentTool,
-          color: currentColor,
-          strokeWidth,
-          points: [{ x, y }]
-        })
-      } else if (currentTool === 'text') {
-        // 文字输入
-        setTextInput({ x, y, value: '' })
       }
       return
     }
 
-    // 选区内的操作
-    if (isInSelection(x, y)) {
-      if (!isOnHandle(x, y)) {
-        // 拖动选区
-        setIsDragging(true)
-        setDragOffset({ x: x - selection.x, y: y - selection.y })
-      }
-    } else {
-      // 开始新的选区
+    // 标注工具（矩形、箭头、画笔、文字）- 只在有选区时有效
+    if (!hasSelection) {
+      return
+    }
+    
+    // 如果点击在选区外，标注工具不生效
+    if (!isInSelection(x, y)) {
+      return
+    }
+
+    // 在选区内执行标注操作
+    if (currentTool === 'rectangle' || currentTool === 'arrow') {
+      // 矩形和箭头工具：使用独立的 annotationRect
       setIsSelecting(true)
-      setSelectionStart({ x, y })
-      setSelectionEnd({ x, y })
+      setAnnotationRect({ start: { x, y }, end: { x, y } })
+    } else if (currentTool === 'brush') {
+      setIsSelecting(true)
+      setCurrentAnnotation({
+        id: Date.now().toString(),
+        type: 'brush',
+        color: currentColor,
+        strokeWidth,
+        points: [{ x, y }]
+      })
     }
   }
 
@@ -399,15 +372,22 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     const { x, y } = getCanvasCoords(e)
 
     if (isSelecting) {
-      if (currentTool === 'brush' || currentTool === 'mosaic') {
-        setCurrentAnnotation(prev => {
-          if (!prev || !prev.points) return prev
-          return {
-            ...prev,
-            points: [...prev.points, { x, y }]
-          }
-        })
-      } else {
+      if (currentTool === 'rectangle' || currentTool === 'arrow') {
+        // 矩形/箭头工具：更新独立的 annotationRect
+        setAnnotationRect(prev => prev ? { ...prev, end: { x, y } } : null)
+      } else if (currentTool === 'brush') {
+        // 画笔工具：只在选区内绘制
+        if (isInSelection(x, y)) {
+          setCurrentAnnotation(prev => {
+            if (!prev || !prev.points) return prev
+            return {
+              ...prev,
+              points: [...prev.points, { x, y }]
+            }
+          })
+        }
+      } else if (currentTool === 'select') {
+        // 选择工具：更新选区端点
         setSelectionEnd({ x, y })
       }
     } else if (isDragging) {
@@ -419,26 +399,66 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   }
 
   const handleMouseUp = () => {
+    // 处理画笔/马赛克标注
     if (isSelecting && currentAnnotation) {
       saveHistory()
       setAnnotations(prev => [...prev, currentAnnotation])
       setCurrentAnnotation(null)
     }
 
-    if (isSelecting && (currentTool === 'rectangle' || currentTool === 'arrow')) {
-      if (selection.width > 5 && selection.height > 5) {
+    // 处理矩形/箭头标注
+    if (isSelecting && annotationRect) {
+      const { start, end } = annotationRect
+      const width = Math.abs(end.x - start.x)
+      const height = Math.abs(end.y - start.y)
+      
+      // 只有当绘制的矩形足够大时才创建标注
+      if (width > 5 && height > 5) {
         saveHistory()
-        const ann: Annotation = {
-          id: Date.now().toString(),
-          type: currentTool,
-          color: currentColor,
-          strokeWidth,
-          start: { x: selection.x, y: selection.y },
-          end: { x: selection.x + selection.width, y: selection.y + selection.height },
-          rect: { x: selection.x, y: selection.y, width: selection.width, height: selection.height }
+        
+        if (currentTool === 'rectangle') {
+          // 矩形：使用规范化坐标
+          const ann: Annotation = {
+            id: Date.now().toString(),
+            type: 'rectangle',
+            color: currentColor,
+            strokeWidth,
+            start: {
+              x: Math.min(start.x, end.x),
+              y: Math.min(start.y, end.y)
+            },
+            end: {
+              x: Math.max(start.x, end.x),
+              y: Math.max(start.y, end.y)
+            },
+            rect: {
+              x: Math.min(start.x, end.x),
+              y: Math.min(start.y, end.y),
+              width,
+              height
+            }
+          }
+          setAnnotations(prev => [...prev, ann])
+        } else if (currentTool === 'arrow') {
+          // 箭头：保持原始起点和终点坐标
+          const ann: Annotation = {
+            id: Date.now().toString(),
+            type: 'arrow',
+            color: currentColor,
+            strokeWidth,
+            start: { x: start.x, y: start.y },
+            end: { x: end.x, y: end.y },
+            rect: {
+              x: Math.min(start.x, end.x),
+              y: Math.min(start.y, end.y),
+              width,
+              height
+            }
+          }
+          setAnnotations(prev => [...prev, ann])
         }
-        setAnnotations(prev => [...prev, ann])
       }
+      setAnnotationRect(null)
     }
 
     setIsSelecting(false)
@@ -451,11 +471,7 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (textInput) {
-          setTextInput(null)
-        } else {
-          window.electronAPI.send('screenshot:cancel')
-        }
+        window.electronAPI.send('screenshot:cancel')
       } else if (e.ctrlKey && e.key === 'z') {
         handleUndo()
       }
@@ -463,24 +479,7 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [textInput, handleUndo])
-
-  // 文字提交
-  const handleTextSubmit = () => {
-    if (textInput && textInput.value.trim()) {
-      saveHistory()
-      const ann: Annotation = {
-        id: Date.now().toString(),
-        type: 'text',
-        color: currentColor,
-        strokeWidth,
-        text: textInput.value,
-        rect: { x: textInput.x, y: textInput.y, width: 0, height: 0 }
-      }
-      setAnnotations(prev => [...prev, ann])
-    }
-    setTextInput(null)
-  }
+  }, [handleUndo])
 
   // 完成截图
   const handleComplete = async () => {
@@ -507,7 +506,11 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
         )
 
         // 绘制标注（需要转换坐标）
-        annotations.forEach(ann => {
+        const allAnnotations = currentAnnotation 
+          ? [...annotations, currentAnnotation] 
+          : annotations
+        
+        allAnnotations.forEach(ann => {
           const offsetAnn = { ...ann }
           if (ann.rect) {
             offsetAnn.rect = {
@@ -584,33 +587,30 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
       <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-white rounded-xl shadow-2xl p-2 flex items-center gap-1">
         <ToolButton
           icon="◻️"
+          title="选择工具"
+          active={currentTool === 'select'}
+          onClick={() => setCurrentTool('select')}
+        />
+        <ToolButton
+          icon="▢"
           title="矩形"
           active={currentTool === 'rectangle'}
-          onClick={() => setCurrentTool('rectangle')}
+          onClick={() => hasSelection && setCurrentTool('rectangle')}
+          disabled={!hasSelection}
         />
         <ToolButton
           icon="➡️"
           title="箭头"
           active={currentTool === 'arrow'}
-          onClick={() => setCurrentTool('arrow')}
+          onClick={() => hasSelection && setCurrentTool('arrow')}
+          disabled={!hasSelection}
         />
         <ToolButton
           icon="✏️"
           title="画笔"
           active={currentTool === 'brush'}
-          onClick={() => setCurrentTool('brush')}
-        />
-        <ToolButton
-          icon="🔲"
-          title="马赛克"
-          active={currentTool === 'mosaic'}
-          onClick={() => setCurrentTool('mosaic')}
-        />
-        <ToolButton
-          icon="T"
-          title="文字"
-          active={currentTool === 'text'}
-          onClick={() => setCurrentTool('text')}
+          onClick={() => hasSelection && setCurrentTool('brush')}
+          disabled={!hasSelection}
         />
 
         <div className="w-px h-6 bg-gray-200 mx-1" />
@@ -652,35 +652,12 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
         {/* 完成 */}
         <button
           onClick={handleComplete}
-          disabled={selection.width < 5 || selection.height < 5}
+          disabled={!hasSelection}
           className="px-4 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           完成
         </button>
       </div>
-
-      {/* 文字输入框 */}
-      {textInput && (
-        <div
-          className="absolute"
-          style={{ left: textInput.x, top: textInput.y }}
-        >
-          <input
-            type="text"
-            autoFocus
-            value={textInput.value}
-            onChange={e => setTextInput({ ...textInput, value: e.target.value })}
-            onBlur={handleTextSubmit}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleTextSubmit()
-              if (e.key === 'Escape') setTextInput(null)
-            }}
-            className="px-2 py-1 bg-white border-2 border-blue-500 rounded text-sm outline-none min-w-[100px]"
-            style={{ color: currentColor, fontSize: strokeWidth * 6 }}
-            placeholder="输入文字..."
-          />
-        </div>
-      )}
     </div>
   )
 }
