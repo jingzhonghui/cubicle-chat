@@ -1,9 +1,10 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, protocol } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, protocol, globalShortcut } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from './utils'
 import log from 'electron-log'
 import { NetworkService } from './network/NetworkService'
 import { DatabaseService } from './database/DatabaseService'
+import ScreenshotService from './services/ScreenshotService'
 import fs from 'fs'
 import path from 'path'
 
@@ -30,6 +31,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let networkService: NetworkService | null = null
 let databaseService: DatabaseService | null = null
+let screenshotService: ScreenshotService | null = null
 
 // 消息提醒相关变量
 let trayFlashTimer: NodeJS.Timeout | null = null
@@ -587,7 +589,46 @@ function registerIpcHandlers(): void {
     return networkService?.getAllBroadcastAddresses() ?? []
   })
 
+  // 截图相关
+  ipcMain.handle('screenshot:start', () => {
+    if (screenshotService) {
+      // 设置回调
+      screenshotService.onCaptureComplete((result) => {
+        // 通知渲染进程截图完成
+        mainWindow?.webContents.send('screenshot:complete', result)
+      })
+      screenshotService.startCapture()
+      return true
+    }
+    return false
+  })
+
+  ipcMain.on('screenshot:cancel', () => {
+    screenshotService?.cancelCapture()
+  })
+
+  ipcMain.on('screenshot:capture', (_, data: { imageData: string; saveToClipboard: boolean }) => {
+    if (screenshotService) {
+      screenshotService.onCaptureComplete((result) => {
+        // 通知渲染进程截图完成
+        mainWindow?.webContents.send('screenshot:complete', result)
+      })
+      screenshotService.handleScreenshotCapture(data)
+    }
+  })
+
   log.info('IPC 处理器注册完成')
+}
+
+// 注册全局快捷键
+function registerGlobalShortcuts(): void {
+  // 截图快捷键 Ctrl+Alt+A
+  globalShortcut.register('CommandOrControl+Alt+A', () => {
+    if (screenshotService) {
+      screenshotService.startCapture()
+    }
+  })
+  log.info('全局快捷键注册完成')
 }
 
 // 当第二个实例启动时，聚焦到第一个实例的窗口
@@ -684,6 +725,12 @@ app.whenReady().then(async () => {
   registerIpcHandlers()
 
   // 服务将在页面加载完成后初始化（在 did-finish-load 事件中）
+
+  // 初始化截图服务
+  screenshotService = new ScreenshotService(mainWindow)
+
+  // 注册全局快捷键
+  registerGlobalShortcuts()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -428,6 +428,15 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     }
   }, [])
 
+  // 截图
+  const handleScreenshot = async () => {
+    try {
+      await window.electronAPI.invoke<boolean>('screenshot:start')
+    } catch (error) {
+      console.error('截图失败:', error)
+    }
+  }
+
   // 选择图片
   const handleSelectImage = async () => {
     try {
@@ -508,6 +517,13 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
       {/* 工具栏 */}
       <div className="flex items-center gap-0.5 px-3 border-b border-[var(--border)] h-9">
+        <button
+          onClick={handleScreenshot}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          title="截图 (Ctrl+Alt+A)"
+        >
+          ✂️
+        </button>
         <button
           onClick={handleSelectImage}
           className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"

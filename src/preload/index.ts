@@ -4,7 +4,9 @@ import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron
 const sendChannels = [
   'window:minimize',
   'window:maximize',
-  'window:close'
+  'window:close',
+  'screenshot:capture',
+  'screenshot:cancel'
 ]
 
 const invokeChannels = [
@@ -34,7 +36,9 @@ const invokeChannels = [
   'network:getCustomBroadcastAddresses',
   'network:addCustomBroadcastAddress',
   'network:removeCustomBroadcastAddress',
-  'network:getAllBroadcastAddresses'
+  'network:getAllBroadcastAddresses',
+  'screenshot:start',
+  'screenshot:cancel'
 ]
 
 const receiveChannels = [
@@ -49,7 +53,8 @@ const receiveChannels = [
   'file:complete',
   'file:send-start',
   'typing:receive',
-  'conversation:new'
+  'conversation:new',
+  'screenshot:complete'
 ]
 
 // 类型定义
