@@ -668,6 +668,53 @@ export class DatabaseService {
     stmt.run(messageId)
   }
 
+  // 根据 fileId 查找消息，用于防止重复处理文件消息
+  getMessageByFileId(fileId: string): Message | null {
+    if (!this.db) return null
+
+    const stmt = this.db.prepare(`
+      SELECT m.*, u.nickname as sender_name
+      FROM messages m
+      LEFT JOIN users u ON m.sender_id = u.user_id
+      WHERE m.file_id = ?
+      LIMIT 1
+    `)
+
+    const row = stmt.get(fileId) as {
+      message_id: string
+      conversation_id: string
+      sender_id: string
+      sender_name: string
+      content_type: string
+      content: string
+      file_id: string
+      reply_to_id: string
+      status: string
+      is_recalled: number
+      sent_at: number
+      delivered_at: number
+      created_at: number
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      messageId: row.message_id,
+      conversationId: row.conversation_id,
+      senderId: row.sender_id,
+      senderName: row.sender_name,
+      contentType: row.content_type as Message['contentType'],
+      content: row.content,
+      fileId: row.file_id,
+      replyToId: row.reply_to_id,
+      status: row.status as Message['status'],
+      isRecalled: Boolean(row.is_recalled),
+      sentAt: row.sent_at,
+      deliveredAt: row.delivered_at,
+      createdAt: row.created_at
+    }
+  }
+
   searchMessages(keyword: string, conversationId?: string, limit = 50): Message[] {
     if (!this.db || !keyword.trim()) return []
 

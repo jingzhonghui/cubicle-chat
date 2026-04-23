@@ -689,9 +689,17 @@ export class NetworkService {
     }
 
     if (conversation) {
-      // 生成消息 ID
-      const messageId = uuidv4()
+      // 使用 transferId 作为消息ID，避免重复消息
+      // 同一个文件传输的 transferId 是唯一的，这样可以防止重复处理 FILE_NOTIFY
+      const messageId = payload.transferId
       const now = Date.now()
+
+      // 检查是否已存在相同 fileId 的消息，避免重复创建
+      const existingMessage = this.databaseService.getMessageByFileId(payload.transferId)
+      if (existingMessage) {
+        log.info(`消息已存在，跳过重复处理: transferId=${payload.transferId}`)
+        return
+      }
 
       // 保存消息到数据库
       this.databaseService.saveMessage({
