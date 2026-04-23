@@ -8,7 +8,7 @@ import log from 'electron-log'
 import { DatabaseService, FileRecord } from '../database/DatabaseService'
 import { TcpTransferService, FileTransfer, generateTransferId } from './TcpTransferService'
 import { app } from 'electron'
-import { getPrimaryMacAddress, generateUserIdFromMac } from '../utils'
+import { getPrimaryMacAddress, generateMachineId } from '../utils'
 
 // 包类型
 export type PacketType =
@@ -109,23 +109,18 @@ export class NetworkService {
     this.databaseService = databaseService
     this.callbacks = callbacks || {}
 
-    // 获取主网卡 MAC 地址
+    // 获取主网卡 MAC 地址（用于日志和兼容性）
     const macAddress = getPrimaryMacAddress()
     this.selfMacAddress = macAddress || '00:00:00:00:00:00'
 
     // 获取本机用户信息
     let userInfo = this.databaseService.getUserInfo()
 
-    // 如果没有 MAC 地址记录，保存当前 MAC 地址
-    const savedMac = this.databaseService.getSetting('user.macAddress')
-    if (!savedMac && macAddress) {
-      this.databaseService.setSetting('user.macAddress', macAddress)
-    }
-
     // 如果用户信息不存在，创建并保存到数据库
-    // 使用 MAC 地址生成 userId，确保同一台电脑重新安装后 userId 相同
+    // 使用机器指纹生成 userId，基于所有物理网卡的组合哈希
+    // 这样即使默认网卡变化，同一台机器也能生成相同的 userId
     if (!userInfo) {
-      const userId = generateUserIdFromMac(macAddress)
+      const userId = generateMachineId()
       const nickname = os.hostname()
       this.databaseService.setSetting('user.userId', userId)
       this.databaseService.setSetting('user.nickname', nickname)
@@ -136,17 +131,17 @@ export class NetworkService {
       userInfo = { userId, nickname, status: 'online' }
       log.info('创建新用户信息:', { userId, nickname, macAddress })
     } else {
-      // 检查是否需要更新 userId（从旧版本升级的情况）
-      const expectedUserId = generateUserIdFromMac(savedMac || macAddress)
-      if (savedMac && userInfo.userId !== expectedUserId) {
-        log.info('检测到 userId 与 MAC 地址不匹配，更新 userId:', {
+      // 检查是否需要更新 userId（从旧版本升级或网卡变化的情况）
+      const expectedUserId = generateMachineId()
+      if (userInfo.userId !== expectedUserId) {
+        log.info('检测到 userId 与机器指纹不匹配，更新 userId:', {
           old: userInfo.userId,
           new: expectedUserId
         })
         this.databaseService.setSetting('user.userId', expectedUserId)
         userInfo.userId = expectedUserId
       }
-      log.info('使用现有用户信息:', { userId: userInfo.userId, nickname: userInfo.nickname, macAddress: savedMac || macAddress })
+      log.info('使用现有用户信息:', { userId: userInfo.userId, nickname: userInfo.nickname, macAddress })
     }
 
     this.selfUserId = userInfo.userId

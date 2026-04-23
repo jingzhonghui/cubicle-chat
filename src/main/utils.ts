@@ -3,6 +3,7 @@
 import { app } from 'electron'
 import os from 'os'
 import log from 'electron-log'
+import crypto from 'crypto'
 
 export const electronApp = {
   setAppUserModelId(id: string): void {
@@ -25,28 +26,16 @@ export const is = {
 }
 
 /**
- * 获取主网卡的 MAC 地址
- * 优先选择物理网卡（非虚拟网卡），作为设备唯一标识
+ * 获取所有物理网卡的 MAC 地址列表
+ * 用于生成稳定的机器唯一标识
  */
-export function getPrimaryMacAddress(): string | null {
+function getAllPhysicalMacs(): string[] {
   const interfaces = os.networkInterfaces()
-
-  // 网卡优先级（数字越小优先级越高）
-  const priorityMap: Record<string, number> = {
-    'eth': 1,      // Linux 以太网
-    'en': 2,       // macOS 以太网
-    'Ethernet': 3, // Windows 以太网
-    'wlan': 4,     // Linux WiFi
-    'wl': 5,       // Linux WiFi (新)
-    'Wi-Fi': 6,    // Windows WiFi
-  }
-
-  const candidates: Array<{ name: string; mac: string; priority: number }> = []
+  const macs: string[] = []
 
   for (const [name, infos] of Object.entries(interfaces)) {
     // 跳过虚拟网卡
     if (/^(vEthernet|VMware|VirtualBox|Docker|ZeroTier|WSL|Tailscale|NordVPN|TAP-Windows|veth|br-|docker|lo)/i.test(name)) {
-      log.debug(`跳过虚拟网卡: ${name}`)
       continue
     }
 
@@ -63,25 +52,24 @@ export function getPrimaryMacAddress(): string | null {
         continue
       }
 
-      // 计算优先级
-      let priority = 100
-      for (const [prefix, p] of Object.entries(priorityMap)) {
-        if (name.toLowerCase().startsWith(prefix.toLowerCase())) {
-          priority = p
-          break
-        }
-      }
-
-      candidates.push({ name, mac: info.mac, priority })
+      macs.push(info.mac.toLowerCase())
     }
   }
 
-  // 按优先级排序
-  candidates.sort((a, b) => a.priority - b.priority)
+  // 去重并排序，确保顺序一致
+  return [...new Set(macs)].sort()
+}
 
-  if (candidates.length > 0) {
-    log.info(`选择主网卡 MAC 地址: ${candidates[0].name} - ${candidates[0].mac}`)
-    return candidates[0].mac
+/**
+ * 获取主网卡的 MAC 地址
+ * 优先选择物理网卡（非虚拟网卡），作为设备唯一标识
+ */
+export function getPrimaryMacAddress(): string | null {
+  const macs = getAllPhysicalMacs()
+
+  if (macs.length > 0) {
+    log.info(`选择主网卡 MAC 地址: ${macs[0]}`)
+    return macs[0]
   }
 
   log.warn('未找到可用的物理网卡 MAC 地址')
@@ -89,12 +77,16 @@ export function getPrimaryMacAddress(): string | null {
 }
 
 /**
- * 生成基于 MAC 地址的用户 ID
- * 这样即使重新安装软件，同一台电脑也能生成相同的 userId
+ * 生成机器唯一标识
+ * 基于所有物理网卡 MAC 地址的组合哈希
+ * 这样即使默认网卡变化，同一台机器也能生成相同的 userId
  */
-export function generateUserIdFromMac(macAddress: string | null): string {
-  if (!macAddress) {
-    // 如果没有 MAC 地址，回退到随机 UUID
+export function generateMachineId(): string {
+  const macs = getAllPhysicalMacs()
+
+  if (macs.length === 0) {
+    // 如果没有 MAC 地址，回退到随机 UUID（这种情况极少发生）
+    log.warn('未找到物理网卡，使用随机 UUID')
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0
       const v = c === 'x' ? r : (r & 0x3) | 0x8
@@ -102,10 +94,18 @@ export function generateUserIdFromMac(macAddress: string | null): string {
     })
   }
 
-  // 将 MAC 地址转换为 UUID 格式
-  // MAC: 00:1A:2B:3C:4D:5E -> UUID: 00001a2b-3c4d-5e00-0000-000000000000
-  const cleanMac = macAddress.replace(/:/g, '').toLowerCase()
-  const paddedMac = cleanMac.padEnd(12, '0')
+  // 将所有 MAC 地址组合后哈希
+  const combined = macs.join('|')
+  log.info(`生成机器标识，基于 MAC 列表: ${macs.join(', ')}`)
 
-  return `${paddedMac.substring(0, 8)}-${paddedMac.substring(8, 12)}-4${paddedMac.substring(13, 15)}-a${paddedMac.substring(15, 16)}00-000000000000`
+  // 使用 SHA-256 生成哈希
+  const hash = crypto.createHash('sha256').update(combined).digest('hex')
+
+  // 转换为 UUID 格式 (8-4-4-4-12)
+  const uuid = `${hash.substring(0, 8)}-${hash.substring(8, 12)}-4${hash.substring(13, 16)}-a${hash.substring(16, 20)}-${hash.substring(20, 32)}`
+
+  log.info(`生成的机器标识: ${uuid}`)
+  return uuid
 }
+
+
