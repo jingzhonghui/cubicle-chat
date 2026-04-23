@@ -98,7 +98,7 @@ export class DatabaseService {
       // 初始化用户信息
       this.initUserInfo()
 
-      log.info(`数据库初始化成功: ${this.dbPath}`)
+      // log.info(`数据库初始化成功: ${this.dbPath}`)
     } catch (error) {
       log.error('数据库初始化失败:', error)
       throw error
@@ -759,7 +759,7 @@ export class DatabaseService {
     
     const stmt = this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
     stmt.run(key, safeValue)
-    log.info(`设置已保存: ${key} = ${key.startsWith('user.') ? '(敏感信息)' : safeValue}`)
+    // log.info(`设置已保存: ${key} = ${key.startsWith('user.') ? '(敏感信息)' : safeValue}`)
     
     // 立即执行 checkpoint，确保数据写入磁盘
     try {

@@ -229,7 +229,7 @@ function stopTrayFlash(): void {
     tray.setImage(originalTrayImage)
   }
 
-  log.info('停止托盘图标闪动')
+  // log.info('停止托盘图标闪动')
 }
 
 // 开始任务栏图标闪烁（红色圆点覆盖层）
@@ -277,7 +277,7 @@ function stopTaskbarFlash(): void {
     mainWindow.setOverlayIcon(null, '')
   }
 
-  log.info('停止任务栏图标闪烁')
+  // log.info('停止任务栏图标闪烁')
 }
 
 // 触发新消息提醒
@@ -302,7 +302,7 @@ function clearNotification(): void {
   hasUnreadMessages = false
   stopTrayFlash()
   stopTaskbarFlash()
-  log.info('清除消息提醒')
+  // log.info('清除消息提醒')
 }
 
 // 创建系统托盘

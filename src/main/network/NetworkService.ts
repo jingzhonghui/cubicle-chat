@@ -177,9 +177,11 @@ export class NetworkService {
 
     // 设置回调
     this.tcpTransferService.setCallbacks(
-      (transfer) => {
+      // (transfer) => {
+      () => {
         // 进度回调
-        log.debug(`文件传输进度: ${transfer.fileName} - ${transfer.progress}%`)
+        
+        // log.debug(`文件传输进度: ${transfer.fileName} - ${transfer.progress}%`)
       },
       (transfer, success, error) => {
         // 完成回调
@@ -262,7 +264,7 @@ export class NetworkService {
 
       // 过滤无效包
       if (!packet || packet.magic !== MAGIC || packet.version !== VERSION) {
-        log.debug(`收到无效包: magic=${packet?.magic}, version=${packet?.version}`)
+        // log.debug(`收到无效包: magic=${packet?.magic}, version=${packet?.version}`)
         return
       }
 
@@ -1353,7 +1355,7 @@ export class NetworkService {
   }
 
   private broadcastOnline(): void {
-    log.info(`发送上线广播: localIP=${this.localIP}, broadcastAddress=${this.broadcastAddress}`)
+    // log.info(`发送上线广播: localIP=${this.localIP}, broadcastAddress=${this.broadcastAddress}`)
     this.sendPacket('ONLINE', {})
   }
 
@@ -1379,7 +1381,7 @@ export class NetworkService {
       log.warn(`UDP socket 未就绪或广播地址未设置: socket=${!!this.udpSocket}, broadcastAddress=${this.broadcastAddress}`)
       return
     }
-    log.debug(`发送包: type=${type}, broadcastAddress=${this.broadcastAddress}`)
+    // log.debug(`发送包: type=${type}, broadcastAddress=${this.broadcastAddress}`)
 
     const packet: UdpPacket = {
       magic: MAGIC,
@@ -1412,7 +1414,7 @@ export class NetworkService {
     const buffer = this.encodePacket(packet)
     const addresses = this.getAllBroadcastAddresses()
 
-    log.debug(`向 ${addresses.length} 个广播地址发送数据包: ${packet.type}`)
+    // log.debug(`向 ${addresses.length} 个广播地址发送数据包: ${packet.type}`)
 
     // 向所有广播地址发送
     for (const address of addresses) {
@@ -1452,7 +1454,7 @@ export class NetworkService {
 
         // 跳过虚拟网卡（Hyper-V, VMware, VirtualBox, Docker, ZeroTier 等）
         if (/^(vEthernet|VMware|VirtualBox|Docker|ZeroTier|WSL|Tailscale|NordVPN|TAP-Windows)/i.test(name)) {
-          log.debug(`跳过虚拟网卡: ${name} - ${info.address}`)
+          // log.debug(`跳过虚拟网卡: ${name} - ${info.address}`)
           continue
         }
 
@@ -1467,13 +1469,13 @@ export class NetworkService {
             info.address.startsWith('172.29.') ||
             info.address.startsWith('172.30.') ||
             info.address.startsWith('172.31.')) {
-          log.debug(`跳过虚拟网段: ${name} - ${info.address}`)
+          // log.debug(`跳过虚拟网段: ${name} - ${info.address}`)
           continue
         }
 
         // 跳过 VirtualBox 虚拟网段 192.168.56.x
         if (info.address.startsWith('192.168.56.')) {
-          log.debug(`跳过 VirtualBox 网段: ${name} - ${info.address}`)
+          // log.debug(`跳过 VirtualBox 网段: ${name} - ${info.address}`)
           continue
         }
 
