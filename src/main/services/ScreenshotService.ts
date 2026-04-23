@@ -13,6 +13,8 @@ class ScreenshotService {
   private screenshotWindow: BrowserWindow | null = null
   private mainWindow: BrowserWindow | null = null
   private pendingCallback: ((result: ScreenshotResult) => void) | null = null
+  private originalOpacity: number = 1
+  private wasFocused: boolean = false
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
@@ -20,6 +22,18 @@ class ScreenshotService {
 
   setMainWindow(mainWindow: BrowserWindow): void {
     this.mainWindow = mainWindow
+  }
+
+  /**
+   * 恢复主窗口
+   */
+  private restoreMainWindow(): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.setOpacity(this.originalOpacity)
+      if (this.wasFocused) {
+        this.mainWindow.focus()
+      }
+    }
   }
 
   /**
@@ -56,91 +70,103 @@ class ScreenshotService {
 
   /**
    * 打开截图选区窗口
+   * 使用 opacity 方式：将主窗口设为完全透明，截图完成后再恢复
    */
   async startCapture(): Promise<void> {
     if (this.screenshotWindow) {
       return
     }
 
-    // 隐藏主窗口
-    const wasVisible = this.mainWindow?.isVisible()
-    this.mainWindow?.hide()
-
-    // 等待主窗口隐藏
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    // 获取全屏截图
-    const screenshotDataUrl = await this.captureFullScreen()
-
-    if (!screenshotDataUrl) {
-      log.error('无法获取屏幕截图')
-      this.mainWindow?.show()
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
       return
     }
 
-    // 保存截图到临时文件
-    const tempDir = path.join(app.getPath('temp'), 'CubicleChat', 'screenshots')
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true })
-    }
-    const tempFilePath = path.join(tempDir, `fullscreen-${Date.now()}.png`)
-    
-    // 将 base64 数据转换为 buffer 并保存
-    const base64Data = screenshotDataUrl.replace(/^data:image\/\w+;base64,/, '')
-    const buffer = Buffer.from(base64Data, 'base64')
-    fs.writeFileSync(tempFilePath, buffer)
-    log.info(`全屏截图已保存到临时文件: ${tempFilePath}`)
+    // 保存原窗口状态
+    this.originalOpacity = this.mainWindow.getOpacity()
+    this.wasFocused = this.mainWindow.isFocused()
 
-    // 获取屏幕尺寸
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.size
-    const scaleFactor = primaryDisplay.scaleFactor
+    try {
+      // 将窗口设为完全透明（瞬间完成，无动画）
+      this.mainWindow.setOpacity(0)
 
-    // 创建全屏截图窗口
-    this.screenshotWindow = new BrowserWindow({
-      width,
-      height,
-      x: 0,
-      y: 0,
-      frame: false,
-      transparent: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      movable: false,
-      fullscreen: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, '../preload/index.js')
+      // 极短延迟确保 GPU 渲染完成
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // 获取全屏截图
+      const screenshotDataUrl = await this.captureFullScreen()
+
+      if (!screenshotDataUrl) {
+        log.error('无法获取屏幕截图')
+        this.restoreMainWindow()
+        return
       }
-    })
 
-    // 加载截图界面（使用文件路径）
-    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+      // 保存截图到临时文件
+      const tempDir = path.join(app.getPath('temp'), 'CubicleChat', 'screenshots')
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+      }
+      const tempFilePath = path.join(tempDir, `fullscreen-${Date.now()}.png`)
+      
+      // 将 base64 数据转换为 buffer 并保存
+      const base64Data = screenshotDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      const buffer = Buffer.from(base64Data, 'base64')
+      fs.writeFileSync(tempFilePath, buffer)
+      log.info(`全屏截图已保存到临时文件: ${tempFilePath}`)
 
-    if (isDev && process.env['ELECTRON_RENDERER_URL']) {
-      this.screenshotWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/screenshot?imagePath=${encodeURIComponent(tempFilePath)}&width=${width}&height=${height}&scale=${scaleFactor}`)
-    } else {
-      this.screenshotWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
-        hash: `/screenshot?imagePath=${encodeURIComponent(tempFilePath)}&width=${width}&height=${height}&scale=${scaleFactor}`
+      // 获取屏幕尺寸
+      const primaryDisplay = screen.getPrimaryDisplay()
+      const { width, height } = primaryDisplay.size
+      const scaleFactor = primaryDisplay.scaleFactor
+
+      // 创建全屏截图窗口
+      this.screenshotWindow = new BrowserWindow({
+        width,
+        height,
+        x: 0,
+        y: 0,
+        frame: false,
+        transparent: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+        movable: false,
+        fullscreen: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          preload: path.join(__dirname, '../preload/index.js')
+        }
       })
+
+      // 加载截图界面（使用文件路径）
+      const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
+      if (isDev && process.env['ELECTRON_RENDERER_URL']) {
+        this.screenshotWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/screenshot?imagePath=${encodeURIComponent(tempFilePath)}&width=${width}&height=${height}&scale=${scaleFactor}`)
+      } else {
+        this.screenshotWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+          hash: `/screenshot?imagePath=${encodeURIComponent(tempFilePath)}&width=${width}&height=${height}&scale=${scaleFactor}`
+        })
+      }
+
+      // 监听截图完成
+      this.screenshotWindow.webContents.on('ipc-message', (_, channel, data) => {
+        if (channel === 'screenshot:capture') {
+          this.handleScreenshotCapture(data)
+        }
+      })
+
+      this.screenshotWindow.on('closed', () => {
+        this.screenshotWindow = null
+        // 截图窗口关闭后才恢复主窗口
+        this.restoreMainWindow()
+      })
+    } catch (error) {
+      log.error('截图启动失败:', error)
+      // 发生错误时恢复窗口
+      this.restoreMainWindow()
     }
-
-    // 监听截图完成
-    this.screenshotWindow.webContents.on('ipc-message', (_, channel, data) => {
-      if (channel === 'screenshot:capture') {
-        this.handleScreenshotCapture(data)
-      }
-    })
-
-    this.screenshotWindow.on('closed', () => {
-      this.screenshotWindow = null
-      // 恢复主窗口
-      if (wasVisible) {
-        this.mainWindow?.show()
-      }
-    })
   }
 
   /**
@@ -194,6 +220,7 @@ class ScreenshotService {
     }
 
     saveAndSend()
+    // 注意：不在这里恢复主窗口，而是在 screenshotWindow 的 closed 事件中恢复
   }
 
   /**
@@ -215,6 +242,8 @@ class ScreenshotService {
       this.pendingCallback({ success: false, error: '取消截图' })
       this.pendingCallback = null
     }
+    // 取消时也恢复主窗口
+    this.restoreMainWindow()
   }
 
   /**
