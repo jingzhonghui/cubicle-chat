@@ -57,7 +57,7 @@ class ScreenshotService {
 
       if (sources.length > 0) {
         const screenshot = sources[0].thumbnail
-        log.info(`截图尺寸: ${screenshot.getSize().width}x${screenshot.getSize().height}, 缩放因子: ${scaleFactor}`)
+        // log.info(`截图尺寸: ${screenshot.getSize().width}x${screenshot.getSize().height}, 缩放因子: ${scaleFactor}`)
         return screenshot.toDataURL()
       }
 
@@ -112,7 +112,7 @@ class ScreenshotService {
       const base64Data = screenshotDataUrl.replace(/^data:image\/\w+;base64,/, '')
       const buffer = Buffer.from(base64Data, 'base64')
       fs.writeFileSync(tempFilePath, buffer)
-      log.info(`全屏截图已保存到临时文件: ${tempFilePath}`)
+      // log.info(`全屏截图已保存到临时文件: ${tempFilePath}`)
 
       // 获取屏幕尺寸
       const primaryDisplay = screen.getPrimaryDisplay()

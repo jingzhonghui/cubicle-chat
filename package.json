@@ -1,6 +1,6 @@
 {
   "name": "cubicle-chat",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "局域网即时通讯工具",
   "main": "./out/main/index.js",
   "author": "jzh",

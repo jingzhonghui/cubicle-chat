@@ -689,7 +689,7 @@ app.whenReady().then(async () => {
     try {
       const urlStr = request.url
 
-      log.info(`local-resource 原始请求 URL: ${urlStr}`)
+      // log.info(`local-resource 原始请求 URL: ${urlStr}`)
 
       // 从 URL 中提取文件路径
       // 格式: local-resource:///E:/Users/test/photo.jpg (非标准协议，路径保持原样)
@@ -704,7 +704,7 @@ app.whenReady().then(async () => {
       // 解码 URL 编码字符（处理中文路径、空格等）
       filePath = decodeURIComponent(filePath)
 
-      log.info(`local-resource 解析文件路径: ${filePath}`)
+      // log.info(`local-resource 解析文件路径: ${filePath}`)
 
       // 安全检查：确保路径存在且是文件
       if (!fs.existsSync(filePath)) {
