@@ -999,6 +999,29 @@ export class DatabaseService {
     stmt.run(filePath, fileId)
   }
 
+  // 删除文件记录
+  deleteFile(fileId: string): boolean {
+    if (!this.db) return false
+
+    try {
+      const stmt = this.db.prepare('DELETE FROM files WHERE file_id = ?')
+      const result = stmt.run(fileId)
+      return result.changes > 0
+    } catch (error) {
+      log.error('删除文件记录失败:', error)
+      return false
+    }
+  }
+
+  // 获取文件路径（用于删除本地文件）
+  getFilePath(fileId: string): string | null {
+    if (!this.db) return null
+
+    const stmt = this.db.prepare('SELECT file_path FROM files WHERE file_id = ?')
+    const row = stmt.get(fileId) as { file_path: string } | undefined
+    return row?.file_path || null
+  }
+
   // 更新会话目标用户信息（当用户昵称/头像/状态变更时调用）
   updateConversationTargetInfo(userId: string, nickname: string, avatar?: string, status?: string): void {
     if (!this.db) return

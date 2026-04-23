@@ -552,6 +552,41 @@ function registerIpcHandlers(): void {
     return false
   })
 
+  // 删除文件记录
+  ipcMain.handle('file:delete', async (_, data: { fileId: string; deleteLocalFile?: boolean }) => {
+    try {
+      // 获取文件路径（如果需要删除本地文件）
+      let filePath: string | null = null
+      if (data.deleteLocalFile) {
+        filePath = databaseService?.getFilePath(data.fileId) || null
+      }
+
+      // 删除数据库记录
+      const deleted = databaseService?.deleteFile(data.fileId)
+      if (!deleted) {
+        return { success: false, error: '删除记录失败' }
+      }
+
+      // 删除本地文件
+      if (data.deleteLocalFile && filePath) {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath)
+            log.info(`本地文件已删除: ${filePath}`)
+          }
+        } catch (fsError) {
+          log.error('删除本地文件失败:', fsError)
+          // 记录已删除，但文件删除失败，仍然返回成功
+        }
+      }
+
+      return { success: true }
+    } catch (error) {
+      log.error('删除文件记录失败:', error)
+      return { success: false, error: String(error) }
+    }
+  })
+
   // 网络接口相关
   ipcMain.handle('network:getInterfaces', (_, includeVirtual = false) => {
     return networkService?.getNetworkInterfaces(includeVirtual) ?? []
