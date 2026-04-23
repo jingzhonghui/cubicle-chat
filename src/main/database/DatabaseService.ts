@@ -1019,7 +1019,11 @@ export class DatabaseService {
 
     const stmt = this.db.prepare('SELECT file_path FROM files WHERE file_id = ?')
     const row = stmt.get(fileId) as { file_path: string } | undefined
-    return row?.file_path || null
+    // 过滤掉 null、undefined 和空字符串
+    if (!row?.file_path || row.file_path.trim() === '') {
+      return null
+    }
+    return row.file_path
   }
 
   // 更新会话目标用户信息（当用户昵称/头像/状态变更时调用）
@@ -1032,13 +1036,6 @@ export class DatabaseService {
       WHERE target_id = ? AND type = 'single'
     `)
     stmt.run(Date.now(), userId)
-  }
-
-  deleteFile(fileId: string): void {
-    if (!this.db) return
-
-    const stmt = this.db.prepare('DELETE FROM files WHERE file_id = ?')
-    stmt.run(fileId)
   }
 
   deleteConversation(conversationId: string): boolean {

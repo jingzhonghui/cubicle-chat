@@ -55,6 +55,7 @@ interface MessageBubbleProps {
 function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   const [fileTransfer, setFileTransfer] = useState<FileTransfer | null>(null)
   const [imageUrl, setImageUrl] = useState<string>('')
+  const [fileDeleted, setFileDeleted] = useState<boolean>(false)
 
   // 将本地文件路径转换为 local-resource:// 协议 URL
   // 使用三个斜杠 local-resource:/// 确保路径在 pathname 中
@@ -98,10 +99,14 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
               // 传输中或未完成时，使用缩略图
               setImageUrl(fileData.thumbnailData)
             }
+          } else {
+            // 文件记录不存在（可能已被删除）
+            setFileDeleted(true)
           }
         })
         .catch((error) => {
           console.error('加载文件状态失败:', error)
+          setFileDeleted(true)
         })
     }
   }, [message.fileId, message.contentType])
@@ -226,12 +231,25 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
     // 图片消息
     if (isImage) {
       const handleDoubleClick = () => {
-        if (imageUrl) {
+        if (imageUrl && !fileDeleted) {
           window.dispatchEvent(new CustomEvent('image:preview', {
             detail: { src: imageUrl, fileName: message.content }
           }))
         }
       }
+
+      // 文件已被删除或损坏
+      if (fileDeleted) {
+        return (
+          <div className="relative rounded-lg overflow-hidden max-w-[240px] border border-[var(--border)] bg-[var(--bg-base)]">
+            <div className="w-[200px] h-[150px] flex flex-col items-center justify-center text-[var(--text-secondary)]">
+              <span className="text-3xl mb-2">🖼️</span>
+              <span className="text-sm">图片被删除或损坏</span>
+            </div>
+          </div>
+        )
+      }
+
       return (
         <div
           className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]"
@@ -262,6 +280,35 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
     }
 
     // 文件消息
+    // 文件已被删除
+    if (fileDeleted) {
+      return (
+        <div className={`file-bubble ${isSelf ? 'self' : ''}`} style={{
+          maxWidth: '280px',
+          padding: '12px',
+          borderRadius: '12px',
+          background: isSelf ? 'var(--accent)' : 'var(--bg-surface)',
+          color: isSelf ? 'var(--text-on-accent)' : 'var(--text-primary)',
+          border: isSelf ? 'none' : '1px solid var(--border)',
+          borderBottomRightRadius: isSelf ? '4px' : undefined,
+          borderBottomLeftRadius: !isSelf ? '4px' : undefined,
+          opacity: 0.7
+        }}>
+          <div className="flex items-center gap-2">
+            <span className="text-[22px]">{getFileIcon(fileName)}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium truncate max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
+                {fileName}
+              </div>
+              <div className="text-[11px] opacity-70 mt-0.5">
+                文件已被删除
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className={`file-bubble ${isSelf ? 'self' : ''}`} style={{
         maxWidth: '280px',

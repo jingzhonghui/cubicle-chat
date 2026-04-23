@@ -572,7 +572,6 @@ function registerIpcHandlers(): void {
         try {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath)
-            log.info(`本地文件已删除: ${filePath}`)
           }
         } catch (fsError) {
           log.error('删除本地文件失败:', fsError)

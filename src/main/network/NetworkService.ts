@@ -274,7 +274,7 @@ export class NetworkService {
         return
       }
 
-      log.debug(`收到消息: type=${packet.type}, from=${packet.from.nickname} (${packet.from.ip})`)
+      // log.debug(`收到消息: type=${packet.type}, from=${packet.from.nickname} (${packet.from.ip})`)
 
       // 处理不同类型的消息
       switch (packet.type) {
@@ -350,7 +350,7 @@ export class NetworkService {
       existingUser.status = packet.from.status
       existingUser.lastHeartbeat = Date.now()
       existingUser.version = packet.from.version
-      log.info(`更新用户(通过MAC): ${user.nickname} (${user.ip}), mac=${macAddress}, avatar=${user.avatar}`)
+      // log.info(`更新用户(通过MAC): ${user.nickname} (${user.ip}), mac=${macAddress}, avatar=${user.avatar}`)
     } else {
       // 新用户
       this.onlineUsers.set(macAddress, user)
