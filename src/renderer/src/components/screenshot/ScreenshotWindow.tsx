@@ -64,6 +64,10 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const annotationCanvasRef = useRef<HTMLCanvasElement>(null)
+  
+  // 缓存背景图片，避免重复加载导致的闪烁
+  const backgroundImageRef = useRef<HTMLImageElement | null>(null)
+  const isImageLoadedRef = useRef(false)
 
   // 选区计算
   const selection = {
@@ -76,32 +80,48 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   // 是否已创建选区（用于控制完成按钮和标注工具）
   const hasSelection = selection.width > 5 && selection.height > 5
 
-  // 绘制背景和遮罩
+  // 初始化：只加载一次背景图片
   useEffect(() => {
-    if (!overlayCanvasRef.current || !screenshotUrl) return
+    if (!screenshotUrl) return
+    
+    const img = new Image()
+    img.onload = () => {
+      backgroundImageRef.current = img
+      isImageLoadedRef.current = true
+      // 图片加载完成后，触发一次初始绘制
+      drawOverlay()
+      drawSelection()
+    }
+    img.src = screenshotUrl
+    
+    return () => {
+      isImageLoadedRef.current = false
+      backgroundImageRef.current = null
+    }
+  }, [screenshotUrl])
+
+  // 绘制背景和遮罩 - 只在初始化时调用
+  const drawOverlay = useCallback(() => {
+    if (!overlayCanvasRef.current || !backgroundImageRef.current) return
 
     const canvas = overlayCanvasRef.current
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const img = new Image()
-    img.onload = () => {
-      canvas.width = screenSize.width
-      canvas.height = screenSize.height
+    canvas.width = screenSize.width
+    canvas.height = screenSize.height
 
-      // 绘制背景图片
-      ctx.drawImage(img, 0, 0, screenSize.width, screenSize.height)
+    // 绘制背景图片
+    ctx.drawImage(backgroundImageRef.current, 0, 0, screenSize.width, screenSize.height)
 
-      // 绘制半透明遮罩
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
-      ctx.fillRect(0, 0, screenSize.width, screenSize.height)
-    }
-    img.src = screenshotUrl
-  }, [screenshotUrl, screenSize])
+    // 绘制半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+    ctx.fillRect(0, 0, screenSize.width, screenSize.height)
+  }, [screenSize])
 
   // 绘制选区和标注
-  useEffect(() => {
-    if (!canvasRef.current) return
+  const drawSelection = useCallback(() => {
+    if (!canvasRef.current || !backgroundImageRef.current) return
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
@@ -117,19 +137,13 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
       // 清除选区内的遮罩（显示原图）
       ctx.clearRect(selection.x, selection.y, selection.width, selection.height)
 
-      // 重新绘制背景图片到选区
-      if (screenshotUrl) {
-        const img = new Image()
-        img.onload = () => {
-          ctx.save()
-          ctx.beginPath()
-          ctx.rect(selection.x, selection.y, selection.width, selection.height)
-          ctx.clip()
-          ctx.drawImage(img, 0, 0, screenSize.width, screenSize.height)
-          ctx.restore()
-        }
-        img.src = screenshotUrl
-      }
+      // 使用缓存的背景图片绘制到选区
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(selection.x, selection.y, selection.width, selection.height)
+      ctx.clip()
+      ctx.drawImage(backgroundImageRef.current, 0, 0, screenSize.width, screenSize.height)
+      ctx.restore()
 
       // 绘制选区边框
       ctx.strokeStyle = '#007AFF'
@@ -158,10 +172,10 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
       ctx.font = '12px sans-serif'
       ctx.fillText(`${selection.width} × ${selection.height}`, selection.x, selection.y - 5)
     }
-  }, [selection, screenshotUrl, screenSize])
+  }, [selection, screenSize])
 
   // 绘制标注
-  useEffect(() => {
+  const drawAnnotations = useCallback(() => {
     if (!annotationCanvasRef.current) return
 
     const canvas = annotationCanvasRef.current
@@ -203,6 +217,15 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
       }
     }
   }, [annotations, currentAnnotation, annotationRect, currentTool, currentColor, strokeWidth, screenSize])
+
+  // 当相关状态变化时重绘
+  useEffect(() => {
+    drawSelection()
+  }, [drawSelection])
+
+  useEffect(() => {
+    drawAnnotations()
+  }, [drawAnnotations])
 
   // 绘制标注的辅助函数
   const drawAnnotation = (ctx: CanvasRenderingContext2D, ann: Annotation) => {
@@ -496,55 +519,51 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
     if (!finalCtx) return
 
     // 绘制背景
-    if (screenshotUrl) {
-      const img = new Image()
-      img.onload = () => {
-        finalCtx.drawImage(
-          img,
-          selection.x, selection.y, selection.width, selection.height,
-          0, 0, selection.width, selection.height
-        )
+    if (backgroundImageRef.current) {
+      finalCtx.drawImage(
+        backgroundImageRef.current,
+        selection.x, selection.y, selection.width, selection.height,
+        0, 0, selection.width, selection.height
+      )
 
-        // 绘制标注（需要转换坐标）
-        const allAnnotations = currentAnnotation 
-          ? [...annotations, currentAnnotation] 
-          : annotations
-        
-        allAnnotations.forEach(ann => {
-          const offsetAnn = { ...ann }
-          if (ann.rect) {
-            offsetAnn.rect = {
-              x: ann.rect.x - selection.x,
-              y: ann.rect.y - selection.y,
-              width: ann.rect.width,
-              height: ann.rect.height
-            }
+      // 绘制标注（需要转换坐标）
+      const allAnnotations = currentAnnotation 
+        ? [...annotations, currentAnnotation] 
+        : annotations
+      
+      allAnnotations.forEach(ann => {
+        const offsetAnn = { ...ann }
+        if (ann.rect) {
+          offsetAnn.rect = {
+            x: ann.rect.x - selection.x,
+            y: ann.rect.y - selection.y,
+            width: ann.rect.width,
+            height: ann.rect.height
           }
-          if (ann.start) {
-            offsetAnn.start = {
-              x: ann.start.x - selection.x,
-              y: ann.start.y - selection.y
-            }
+        }
+        if (ann.start) {
+          offsetAnn.start = {
+            x: ann.start.x - selection.x,
+            y: ann.start.y - selection.y
           }
-          if (ann.end) {
-            offsetAnn.end = {
-              x: ann.end.x - selection.x,
-              y: ann.end.y - selection.y
-            }
+        }
+        if (ann.end) {
+          offsetAnn.end = {
+            x: ann.end.x - selection.x,
+            y: ann.end.y - selection.y
           }
-          if (ann.points) {
-            offsetAnn.points = ann.points.map(p => ({
-              x: p.x - selection.x,
-              y: p.y - selection.y
-            }))
-          }
-          drawAnnotation(finalCtx, offsetAnn)
-        })
+        }
+        if (ann.points) {
+          offsetAnn.points = ann.points.map(p => ({
+            x: p.x - selection.x,
+            y: p.y - selection.y
+          }))
+        }
+        drawAnnotation(finalCtx, offsetAnn)
+      })
 
-        const imageData = finalCanvas.toDataURL('image/png')
-        onComplete({ imageData, saveToClipboard: true })
-      }
-      img.src = screenshotUrl
+      const imageData = finalCanvas.toDataURL('image/png')
+      onComplete({ imageData, saveToClipboard: true })
     }
   }
 
