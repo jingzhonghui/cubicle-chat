@@ -58,13 +58,15 @@ function ContextMenu({
   y,
   onClose,
   onCopy,
-  onSaveAs
+  onSaveAs,
+  onOpenFolder
 }: {
   x: number
   y: number
   onClose: () => void
   onCopy: () => void
   onSaveAs: () => void
+  onOpenFolder: () => void
 }): JSX.Element {
   useEffect(() => {
     const handleClick = () => onClose()
@@ -105,6 +107,16 @@ function ContextMenu({
         <span>💾</span>
         <span>另存为</span>
       </button>
+      <button
+        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+        onClick={() => {
+          onOpenFolder()
+          onClose()
+        }}
+      >
+        <span>📂</span>
+        <span>打开文件位置</span>
+      </button>
     </div>
   )
 }
@@ -123,12 +135,20 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
     return `local-resource:///${normalizedPath}`
   }
 
+  // 是否为临时消息（尚未入库）
+  const isTempMessage = message.fileId?.startsWith('temp-') ?? false
+
   // 加载文件状态（组件挂载时从数据库获取）
   useEffect(() => {
     if (message.fileId && (message.contentType === 'file' || message.contentType === 'image')) {
       // 对于图片消息，如果 content 已经是 local-resource:// URL（发送中的临时消息），直接使用
       if (message.contentType === 'image' && message.content.startsWith('local-resource://')) {
         setImageUrl(message.content)
+      }
+
+      // 临时消息（fileId 以 temp- 开头）此时数据库中还没有文件记录，跳过查询
+      if (isTempMessage) {
+        return
       }
 
       // 先从数据库加载文件状态
@@ -328,6 +348,24 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
         }
       }
 
+      const handleOpenFolder = async () => {
+        try {
+          // 从 local-resource:// URL 解析文件路径
+          let filePath = imageUrl.replace(/^local-resource:\/\//i, '')
+          if (filePath.startsWith('/') && filePath.length > 2 && filePath.charAt(2) === ':') {
+            filePath = filePath.substring(1)
+          }
+          filePath = decodeURIComponent(filePath)
+
+          const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('file:openFolder', { filePath })
+          if (!result?.success) {
+            console.error('打开文件位置失败:', result?.error)
+          }
+        } catch (error) {
+          console.error('打开文件位置失败:', error)
+        }
+      }
+
       // 文件已被删除或损坏
       if (fileDeleted) {
         return (
@@ -375,6 +413,7 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
               onClose={() => setContextMenu(null)}
               onCopy={handleCopyImage}
               onSaveAs={handleSaveAs}
+              onOpenFolder={handleOpenFolder}
             />
           )}
         </>
