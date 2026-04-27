@@ -13,7 +13,6 @@ class ScreenshotService {
   private screenshotWindow: BrowserWindow | null = null
   private mainWindow: BrowserWindow | null = null
   private pendingCallback: ((result: ScreenshotResult) => void) | null = null
-  private originalOpacity: number = 1
   private wasFocused: boolean = false
 
   constructor(mainWindow: BrowserWindow) {
@@ -29,11 +28,18 @@ class ScreenshotService {
    */
   private restoreMainWindow(): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.setOpacity(this.originalOpacity)
+      this.mainWindow.show()
       if (this.wasFocused) {
         this.mainWindow.focus()
       }
     }
+  }
+
+  /**
+   * 等待指定毫秒
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 
   /**
@@ -70,7 +76,8 @@ class ScreenshotService {
 
   /**
    * 打开截图选区窗口
-   * 使用 opacity 方式：将主窗口设为完全透明，截图完成后再恢复
+   * 使用 hide 方式：先彻底隐藏主窗口，完成截图后再恢复
+   * （hide 比 setOpacity(0) 更可靠，避免 compositor 在 Linux 下残留半透明窗口）
    */
   async startCapture(): Promise<void> {
     if (this.screenshotWindow) {
@@ -82,15 +89,17 @@ class ScreenshotService {
     }
 
     // 保存原窗口状态
-    this.originalOpacity = this.mainWindow.getOpacity()
     this.wasFocused = this.mainWindow.isFocused()
 
     try {
-      // 将窗口设为完全透明（瞬间完成，无动画）
-      this.mainWindow.setOpacity(0)
+      // 彻底隐藏主窗口（hide 比 setOpacity(0) 更可靠，确保不会被截入）
+      this.mainWindow.hide()
 
-      // 极短延迟确保 GPU 渲染完成
-      await new Promise(resolve => setTimeout(resolve, 50))
+      // 按平台给不同延迟，平衡体验与稳定性：
+      // - Windows/macOS: compositor 同步快，100ms 足够
+      // - Linux (X11/Wayland): compositor 可能有帧缓冲延迟，需 300ms 避免半透明残影
+      const platformDelay = process.platform === 'linux' ? 300 : 100
+      await this.delay(platformDelay)
 
       // 获取全屏截图
       const screenshotDataUrl = await this.captureFullScreen()
