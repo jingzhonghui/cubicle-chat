@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, protocol, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard, dialog, protocol, globalShortcut } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from './utils'
 import log from 'electron-log'
@@ -639,6 +639,75 @@ function registerIpcHandlers(): void {
 
   ipcMain.on('screenshot:cancel', () => {
     screenshotService?.cancelCapture()
+  })
+
+  // 图片复制到剪贴板
+  ipcMain.handle('image:copyToClipboard', async (_, data: { imageUrl: string }) => {
+    try {
+      // 从 local-resource:// 协议 URL 提取文件路径
+      let filePath = data.imageUrl.replace(/^local-resource:\/\//i, '')
+
+      // 去除可能多余的前导斜杠
+      if (filePath.startsWith('/') && filePath.length > 2 && filePath.charAt(2) === ':') {
+        filePath = filePath.substring(1)
+      }
+
+      filePath = decodeURIComponent(filePath)
+
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' }
+      }
+
+      // 读取文件并写入剪贴板
+      const buffer = await fs.promises.readFile(filePath)
+      const image = nativeImage.createFromBuffer(buffer)
+      clipboard.writeImage(image)
+
+      return { success: true }
+    } catch (error) {
+      log.error('复制图片到剪贴板失败:', error)
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 图片另存为
+  ipcMain.handle('image:saveAs', async (_, data: { imageUrl: string; fileName: string }) => {
+    try {
+      // 从 local-resource:// 协议 URL 提取文件路径
+      let filePath = data.imageUrl.replace(/^local-resource:\/\//i, '')
+
+      // 去除可能多余的前导斜杠
+      if (filePath.startsWith('/') && filePath.length > 2 && filePath.charAt(2) === ':') {
+        filePath = filePath.substring(1)
+      }
+
+      filePath = decodeURIComponent(filePath)
+
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' }
+      }
+
+      // 显示保存对话框
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        defaultPath: data.fileName,
+        filters: [
+          { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
+          { name: '所有文件', extensions: ['*'] }
+        ]
+      })
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: '用户取消' }
+      }
+
+      // 复制文件到目标路径
+      await fs.promises.copyFile(filePath, result.filePath)
+
+      return { success: true, filePath: result.filePath }
+    } catch (error) {
+      log.error('图片另存为失败:', error)
+      return { success: false, error: String(error) }
+    }
   })
 
   ipcMain.on('screenshot:capture', (_, data: { imageData: string; saveToClipboard: boolean }) => {

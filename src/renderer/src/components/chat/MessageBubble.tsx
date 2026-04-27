@@ -52,10 +52,68 @@ interface MessageBubbleProps {
   isSelf: boolean
 }
 
+// 右键菜单组件
+function ContextMenu({
+  x,
+  y,
+  onClose,
+  onCopy,
+  onSaveAs
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onCopy: () => void
+  onSaveAs: () => void
+}): JSX.Element {
+  useEffect(() => {
+    const handleClick = () => onClose()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('click', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('click', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed z-50 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[120px]"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+        onClick={() => {
+          onCopy()
+          onClose()
+        }}
+      >
+        <span>📋</span>
+        <span>复制</span>
+      </button>
+      <button
+        className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-base)] flex items-center gap-2"
+        onClick={() => {
+          onSaveAs()
+          onClose()
+        }}
+      >
+        <span>💾</span>
+        <span>另存为</span>
+      </button>
+    </div>
+  )
+}
+
 function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   const [fileTransfer, setFileTransfer] = useState<FileTransfer | null>(null)
   const [imageUrl, setImageUrl] = useState<string>('')
   const [fileDeleted, setFileDeleted] = useState<boolean>(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
 
   // 将本地文件路径转换为 local-resource:// 协议 URL
   // 使用三个斜杠 local-resource:/// 确保路径在 pathname 中
@@ -114,13 +172,15 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   // 监听文件传输进度
   useEffect(() => {
     if (message.fileId && (message.contentType === 'file' || message.contentType === 'image')) {
-      const unsubscribeProgress = window.electronAPI.on('file:progress', (data: FileTransfer) => {
+      const unsubscribeProgress = window.electronAPI.on('file:progress', (...args: unknown[]) => {
+        const data = args[0] as FileTransfer
         if (data.transferId === message.fileId) {
           setFileTransfer(data)
         }
       })
 
-      const unsubscribeComplete = window.electronAPI.on('file:complete', (data: FileTransfer) => {
+      const unsubscribeComplete = window.electronAPI.on('file:complete', (...args: unknown[]) => {
+        const data = args[0] as FileTransfer
         if (data.transferId === message.fileId) {
           setFileTransfer(data)
           // 图片传输完成后，使用 local-resource:// 协议加载本地图片
@@ -238,6 +298,36 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
         }
       }
 
+      const handleContextMenu = (e: React.MouseEvent) => {
+        if (imageUrl && !fileDeleted && status === 'completed') {
+          e.preventDefault()
+          e.stopPropagation()
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }
+      }
+
+      const handleCopyImage = async () => {
+        try {
+          const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('image:copyToClipboard', { imageUrl })
+          if (!result?.success) {
+            console.error('复制图片失败:', result?.error)
+          }
+        } catch (error) {
+          console.error('复制图片失败:', error)
+        }
+      }
+
+      const handleSaveAs = async () => {
+        try {
+          const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('image:saveAs', { imageUrl, fileName: message.content })
+          if (!result?.success) {
+            console.error('另存为失败:', result?.error)
+          }
+        } catch (error) {
+          console.error('另存为失败:', error)
+        }
+      }
+
       // 文件已被删除或损坏
       if (fileDeleted) {
         return (
@@ -251,31 +341,43 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
       }
 
       return (
-        <div
-          className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]"
-          onDoubleClick={handleDoubleClick}
-        >
-          {imageUrl ? (
-            <img src={imageUrl} alt="图片" className="w-full block max-h-[240px] object-cover" />
-          ) : (
-            <div className="w-[200px] h-[150px] bg-[var(--bg-base)] flex items-center justify-center text-[var(--text-secondary)] text-sm">
-              加载中...
-            </div>
-          )}
-          {status === 'transferring' && (
-            <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
-              <div className="text-white text-sm font-medium">{progress}%</div>
-              <div className="w-16 h-1 bg-white/30 rounded-full mt-1 overflow-hidden">
-                <div className="h-full bg-white transition-all duration-300" style={{ width: `${progress}%` }} />
+        <>
+          <div
+            className="relative rounded-lg overflow-hidden max-w-[240px] cursor-pointer border border-[var(--border)]"
+            onDoubleClick={handleDoubleClick}
+            onContextMenu={handleContextMenu}
+          >
+            {imageUrl ? (
+              <img src={imageUrl} alt="图片" className="w-full block max-h-[240px] object-cover" />
+            ) : (
+              <div className="w-[200px] h-[150px] bg-[var(--bg-base)] flex items-center justify-center text-[var(--text-secondary)] text-sm">
+                加载中...
               </div>
-            </div>
+            )}
+            {status === 'transferring' && (
+              <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
+                <div className="text-white text-sm font-medium">{progress}%</div>
+                <div className="w-16 h-1 bg-white/30 rounded-full mt-1 overflow-hidden">
+                  <div className="h-full bg-white transition-all duration-300" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+            {status === 'pending' && (
+              <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                <div className="text-white text-xs">等待发送...</div>
+              </div>
+            )}
+          </div>
+          {contextMenu && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onClose={() => setContextMenu(null)}
+              onCopy={handleCopyImage}
+              onSaveAs={handleSaveAs}
+            />
           )}
-          {status === 'pending' && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-              <div className="text-white text-xs">等待发送...</div>
-            </div>
-          )}
-        </div>
+        </>
       )
     }
 
@@ -437,7 +539,7 @@ function MessageBubble({ message, isSelf }: MessageBubbleProps): JSX.Element {
   }
 
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
-  const colorIndex = message.senderName?.charCodeAt(0) % colors.length || 0
+  const colorIndex = (message.senderName?.charCodeAt(0) ?? 0) % colors.length
   const avatarBg = isSelf ? 'var(--accent)' : colors[colorIndex]
 
   return (

@@ -39,7 +39,9 @@ const invokeChannels = [
   'network:removeCustomBroadcastAddress',
   'network:getAllBroadcastAddresses',
   'screenshot:start',
-  'screenshot:cancel'
+  'screenshot:cancel',
+  'image:copyToClipboard',
+  'image:saveAs'
 ]
 
 const receiveChannels = [
