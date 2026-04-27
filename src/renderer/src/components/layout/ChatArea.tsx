@@ -235,6 +235,13 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { sendMessage, sendFileMessage } = useMessageStore()
 
+  // 切换会话时清空输入框内容
+  useEffect(() => {
+    setMessage('')
+    setShowEmoji(false)
+    textareaRef.current?.focus()
+  }, [conversationId])
+
   const emojis = ['😀', '😂', '🥰', '😎', '🤔', '😅', '👍', '❤️', '🔥', '✅', '🎉', '💡', '📌', '🚀', '👀', '💬', '🎨', '📊', '🗓️', '⚡', '😭', '😡', '🙏', '👋', '✨', '🌟', '💪', '🤝', '👏', '🙌']
 
   const handleSend = async () => {
