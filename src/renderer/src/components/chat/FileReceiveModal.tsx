@@ -153,7 +153,8 @@ export function useFileReceiveRequests(): {
   const [pendingRequest, setPendingRequest] = useState<FileReceiveRequest | null>(null)
 
   useEffect(() => {
-    const unsubscribe = window.electronAPI.on('file:receive-request', (data: FileReceiveRequest) => {
+    const unsubscribe = window.electronAPI.on('file:receive-request', (...args: unknown[]) => {
+      const data = args[0] as FileReceiveRequest
       console.log('收到文件接收请求:', data)
       setPendingRequest(data)
     })

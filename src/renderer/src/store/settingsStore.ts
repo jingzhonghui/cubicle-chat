@@ -120,13 +120,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           const value = await window.electronAPI.invoke<string | null>('settings:get', key)
           if (value !== null) {
             // 根据默认值类型进行转换
-            const defaultValue = defaultSettings[key]
+            const defaultValue = defaultSettings[key as keyof AppSettings]
             if (typeof defaultValue === 'boolean') {
-              loadedSettings[key] = (value === 'true') as AppSettings[typeof key]
+              (loadedSettings as Record<string, boolean | number | string | undefined>)[key] = value === 'true'
             } else if (typeof defaultValue === 'number') {
-              loadedSettings[key] = Number(value) as AppSettings[typeof key]
+              (loadedSettings as Record<string, boolean | number | string | undefined>)[key] = Number(value)
             } else {
-              loadedSettings[key] = value as AppSettings[typeof key]
+              (loadedSettings as Record<string, boolean | number | string | undefined>)[key] = value
             }
           }
         } catch (error) {

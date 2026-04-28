@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useUserStore } from '@store/userStore'
-import { useMessageStore } from '@store/messageStore'
 import { parseAvatar } from './Sidebar'
 
 interface UsersPageProps {

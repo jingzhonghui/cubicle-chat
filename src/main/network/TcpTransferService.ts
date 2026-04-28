@@ -65,6 +65,8 @@ export class TcpTransferService {
   private server: net.Server | null = null
   private serverPort: number = TCP_PORT_START
   private transfers: Map<string, FileTransfer> = new Map()
+  // pendingConnections 预留用于未来连接池管理
+  // eslint-disable-next-line @typescript-eslint/no-unused-private-class-members
   private pendingConnections: Map<string, net.Socket> = new Map()
   private onProgress: ProgressCallback | null = null
   private onComplete: CompleteCallback | null = null

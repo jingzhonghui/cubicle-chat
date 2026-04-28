@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard, dialog, protocol, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard, dialog, protocol, globalShortcut, type NativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from './utils'
 import log from 'electron-log'
@@ -36,10 +36,11 @@ let screenshotService: ScreenshotService | null = null
 // 消息提醒相关变量
 let trayFlashTimer: NodeJS.Timeout | null = null
 let isTrayFlashing = false
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let hasUnreadMessages = false
-let originalTrayImage: nativeImage | null = null
-let highlightTrayImage: nativeImage | null = null
-let overlayIcon: nativeImage | null = null
+let originalTrayImage: NativeImage | null = null
+let highlightTrayImage: NativeImage | null = null
+let overlayIcon: NativeImage | null = null
 
 // 任务栏闪烁计时器
 let taskbarFlashTimer: NodeJS.Timeout | null = null
@@ -113,7 +114,8 @@ function createWindow(): void {
 
   // 窗口关闭时最小化到托盘
   mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!(app as any).isQuitting) {
       event.preventDefault()
       mainWindow?.hide()
     }
@@ -130,7 +132,7 @@ function createWindow(): void {
 }
 
 // 创建任务栏覆盖图标（红色圆点）
-function createNativeOverlayIcon(): nativeImage {
+function createNativeOverlayIcon(): NativeImage {
   // 创建一个简单的红色圆点图标 (16x16)
   const size = 16
   // BGRA 格式像素数据
@@ -165,7 +167,7 @@ function createNativeOverlayIcon(): nativeImage {
 }
 
 // 创建纯色高亮图标
-function createColoredTrayIcon(baseIcon: nativeImage, color: string): nativeImage {
+function createColoredTrayIcon(baseIcon: NativeImage, color: string): NativeImage {
   // 获取图标尺寸
   const size = baseIcon.getSize()
 
@@ -208,7 +210,7 @@ function startTrayFlash(): void {
   let isHighlight = false
   trayFlashTimer = setInterval(() => {
     if (!tray) return
-    tray.setImage(isHighlight ? originalTrayImage : highlightTrayImage!)
+    tray.setImage(isHighlight ? originalTrayImage! : highlightTrayImage!)
     isHighlight = !isHighlight
   }, 500) // 每500ms切换一次
 
@@ -336,7 +338,8 @@ function createTray(): void {
     {
       label: '退出',
       click: () => {
-        app.isQuitting = true
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (app as any).isQuitting = true
         app.quit()
       }
     }
@@ -735,7 +738,7 @@ function registerGlobalShortcuts(): void {
 }
 
 // 当第二个实例启动时，聚焦到第一个实例的窗口
-app.on('second-instance', (_, commandLine, workingDirectory) => {
+app.on('second-instance', () => {
   log.info('检测到第二个实例启动，聚焦到主窗口')
   if (mainWindow) {
     if (mainWindow.isMinimized()) {
@@ -830,7 +833,9 @@ app.whenReady().then(async () => {
   // 服务将在页面加载完成后初始化（在 did-finish-load 事件中）
 
   // 初始化截图服务
-  screenshotService = new ScreenshotService(mainWindow)
+  if (mainWindow) {
+    screenshotService = new ScreenshotService(mainWindow)
+  }
 
   // 注册全局快捷键
   registerGlobalShortcuts()
@@ -846,7 +851,8 @@ app.whenReady().then(async () => {
 
 // 退出前清理
 app.on('before-quit', () => {
-  app.isQuitting = true
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (app as any).isQuitting = true
   networkService?.destroy()
   databaseService?.close()
   log.info('CubicleChat 已退出')
@@ -862,10 +868,14 @@ process.on('unhandledRejection', (reason) => {
 })
 
 // 扩展 app 类型
-declare module 'electron' {
-  interface App {
-    isQuitting: boolean
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Electron {
+    interface App {
+      isQuitting: boolean
+    }
   }
 }
 
-app.isQuitting = false
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(app as any).isQuitting = false

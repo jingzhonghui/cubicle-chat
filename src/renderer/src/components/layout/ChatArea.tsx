@@ -277,7 +277,8 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     return imageExtensions.includes(ext)
   }
 
-  // 获取文件图标
+  // 获取文件图标（预留用于未来文件消息显示）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || ''
     const iconMap: Record<string, string> = {
@@ -414,7 +415,8 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
     }
   }
 
-  // 移除待发送文件
+  // 移除待发送文件（预留用于未来文件预览功能）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => {
       const newFiles = [...prev]
@@ -625,6 +627,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAreaProps): JSX.Element {
   const { conversations, messages } = useMessageStore()
   const { userInfo, onlineUsers } = useUserStore()
@@ -712,8 +715,6 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         </div>
       )
     }
-
-    let lastDate = ''
 
     return conversationMessages.map((msg, index) => {
       const isSelf = msg.senderId === userInfo?.userId

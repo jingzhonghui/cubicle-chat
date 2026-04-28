@@ -1027,11 +1027,11 @@ export class DatabaseService {
   }
 
   // 更新会话目标用户信息（当用户昵称/头像/状态变更时调用）
-  updateConversationTargetInfo(userId: string, nickname: string, avatar?: string, status?: string): void {
+  updateConversationTargetInfo(userId: string, _nickname: string, _avatar?: string, _status?: string): void {
     if (!this.db) return
 
     const stmt = this.db.prepare(`
-      UPDATE conversations 
+      UPDATE conversations
       SET updated_at = ?
       WHERE target_id = ? AND type = 'single'
     `)

@@ -338,12 +338,13 @@ export function initMessageStoreListeners(): () => void {
   console.log('[MessageStore] 初始化事件监听')
 
   // 监听用户信息更新，同步到会话列表
-  const unsubscribeUserUpdate = window.electronAPI.on('user:update', (data: {
-    userId: string
-    nickname: string
-    avatar?: string
-    status: string
-  }) => {
+  const unsubscribeUserUpdate = window.electronAPI.on('user:update', (...args: unknown[]) => {
+    const data = args[0] as {
+      userId: string
+      nickname: string
+      avatar?: string
+      status: string
+    }
     console.log('[MessageStore] 收到 user:update 事件:', data.nickname)
     useMessageStore.setState((state) => ({
       conversations: state.conversations.map((c) =>
@@ -355,10 +356,11 @@ export function initMessageStoreListeners(): () => void {
   })
 
   // 监听用户离线，同步更新会话列表中的用户状态
-  const unsubscribeUserOffline = window.electronAPI.on('user:offline', (data: {
-    macAddress: string
-    userId: string
-  }) => {
+  const unsubscribeUserOffline = window.electronAPI.on('user:offline', (...args: unknown[]) => {
+    const data = args[0] as {
+      macAddress: string
+      userId: string
+    }
     console.log('[MessageStore] 收到 user:offline 事件:', data.userId)
     useMessageStore.setState((state) => ({
       conversations: state.conversations.map((c) =>
@@ -369,17 +371,18 @@ export function initMessageStoreListeners(): () => void {
     }))
   })
 
-  const unsubscribeReceive = window.electronAPI.on('msg:receive', (data: {
-    messageId: string
-    conversationId: string
-    senderId: string
-    senderName: string
-    contentType: string
-    content: string
-    fileId?: string
-    sentAt: number
-    isNewConversation?: boolean
-  }) => {
+  const unsubscribeReceive = window.electronAPI.on('msg:receive', (...args: unknown[]) => {
+    const data = args[0] as {
+      messageId: string
+      conversationId: string
+      senderId: string
+      senderName: string
+      contentType: string
+      content: string
+      fileId?: string
+      sentAt: number
+      isNewConversation?: boolean
+    }
     console.log('[MessageStore] 收到 msg:receive 事件:', data.messageId, 'fileId:', data.fileId)
 
     const message: Message = {
@@ -452,15 +455,18 @@ export function initMessageStoreListeners(): () => void {
     }
   })
 
-  const unsubscribeAck = window.electronAPI.on('msg:ack', (data: { messageId: string }) => {
+  const unsubscribeAck = window.electronAPI.on('msg:ack', (...args: unknown[]) => {
+    const data = args[0] as { messageId: string }
     useMessageStore.getState().updateMessageStatus(data.messageId, 'delivered')
   })
 
-  const unsubscribeWithdrawn = window.electronAPI.on('msg:withdrawn', (data: { messageId: string }) => {
+  const unsubscribeWithdrawn = window.electronAPI.on('msg:withdrawn', (...args: unknown[]) => {
+    const data = args[0] as { messageId: string }
     useMessageStore.getState().updateMessageStatus(data.messageId, 'recalled' as Message['status'])
   })
 
-  const unsubscribeConversationNew = window.electronAPI.on('conversation:new', (conversation: Conversation) => {
+  const unsubscribeConversationNew = window.electronAPI.on('conversation:new', (...args: unknown[]) => {
+    const conversation = args[0] as Conversation
     const state = useMessageStore.getState()
     const exists = state.conversations.some(c => c.conversationId === conversation.conversationId)
     if (!exists) {

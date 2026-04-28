@@ -29,6 +29,7 @@ interface ScreenshotWindowProps {
   onCancel: () => void
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFactor, onComplete, onCancel }: ScreenshotWindowProps): JSX.Element {
   const [screenshotUrl] = useState<string>(screenshotImage)
   // 使用实际的像素尺寸（缩放后的尺寸）
@@ -44,7 +45,9 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isResizing, setIsResizing] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [resizeHandle, setResizeHandle] = useState<string | null>(null)
   
   // 标注矩形坐标（独立于选区，用于矩形/箭头工具的绘制预览）
@@ -53,6 +56,7 @@ function ScreenshotWindow({ screenshotImage, screenWidth, screenHeight, scaleFac
   // 工具状态
   const [currentTool, setCurrentTool] = useState<ToolType>('select')
   const [currentColor, setCurrentColor] = useState(COLORS[0])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [strokeWidth, setStrokeWidth] = useState(3)
 
   // 标注列表
