@@ -526,28 +526,32 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
       <div className="flex items-center gap-0.5 px-3 border-b border-[var(--border)] h-9">
         <button
           onClick={handleScreenshot}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          disabled={disabled}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-none bg-transparent cursor-pointer"
           title="截图 (Ctrl+Alt+A)"
         >
           ✂️
         </button>
         <button
           onClick={handleSelectImage}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          disabled={disabled}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-none bg-transparent cursor-pointer"
           title="发送图片"
         >
           🖼️
         </button>
         <button
           onClick={handleSelectFile}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          disabled={disabled}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-none bg-transparent cursor-pointer"
           title="发送文件"
         >
           📎
         </button>
         <button
           onClick={() => setShowEmoji(!showEmoji)}
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+          disabled={disabled}
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-none bg-transparent cursor-pointer"
           title="表情"
         >
           😊
@@ -555,7 +559,8 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         <div className="flex-1" />
         <button
           onClick={() => setMessage('')}
-          className="text-[11px] text-[var(--text-disabled)] hover:text-[var(--text-secondary)] border-none bg-transparent cursor-pointer"
+          disabled={disabled}
+          className="text-[11px] text-[var(--text-disabled)] hover:text-[var(--text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed border-none bg-transparent cursor-pointer"
         >
           清空
         </button>
@@ -571,9 +576,17 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
         </div>
       )}
 
+      {/* 离线提示 */}
+      {disabled && (
+        <div className="px-3 py-1.5 bg-[var(--bg-base)] border-b border-[var(--border)] text-[12px] text-[var(--text-disabled)] flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[var(--status-offline)]" />
+          对方已离线，暂时无法发送消息
+        </div>
+      )}
+
       {/* 输入框 */}
       <div
-        className="relative"
+        className={`relative ${disabled ? 'bg-[var(--bg-base)] opacity-60' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -584,7 +597,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="输入消息，Enter 发送；支持拖拽或粘贴文件"
+          placeholder={disabled ? '对方离线中，无法发送消息...' : '输入消息，Enter 发送；支持拖拽或粘贴文件'}
           disabled={disabled}
           rows={3}
           className="w-full px-3 py-2 text-sm text-[var(--text-primary)] bg-transparent outline-none resize-none min-h-[80px] max-h-[160px] overflow-y-auto placeholder-[var(--text-disabled)] font-inherit leading-relaxed"
@@ -614,12 +627,17 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
 function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAreaProps): JSX.Element {
   const { conversations, messages } = useMessageStore()
-  const { userInfo } = useUserStore()
+  const { userInfo, onlineUsers } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSearch, setShowSearch] = useState(false)
 
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
+
+  // 判断对方是否在线
+  const isTargetOnline = currentConversation
+    ? onlineUsers.some((u) => u.userId === currentConversation.targetId)
+    : false
 
   // 滚动到底部
   useEffect(() => {
@@ -733,7 +751,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       <ChatHeader
         targetName={currentConversation.targetName}
         targetAvatar={currentConversation.targetAvatar}
-        targetStatus={currentConversation.targetStatus}
+        targetStatus={isTargetOnline ? (currentConversation.targetStatus || 'online') : 'offline'}
         onSearchClick={() => setShowSearch(true)}
       />
 
@@ -747,6 +765,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       <MessageInput
         conversationId={selectedConversationId}
         targetId={currentConversation.targetId}
+        disabled={!isTargetOnline}
       />
     </div>
   )

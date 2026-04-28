@@ -354,6 +354,21 @@ export function initMessageStoreListeners(): () => void {
     }))
   })
 
+  // 监听用户离线，同步更新会话列表中的用户状态
+  const unsubscribeUserOffline = window.electronAPI.on('user:offline', (data: {
+    macAddress: string
+    userId: string
+  }) => {
+    console.log('[MessageStore] 收到 user:offline 事件:', data.userId)
+    useMessageStore.setState((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.targetId === data.userId
+          ? { ...c, targetStatus: 'offline' }
+          : c
+      )
+    }))
+  })
+
   const unsubscribeReceive = window.electronAPI.on('msg:receive', (data: {
     messageId: string
     conversationId: string
@@ -457,6 +472,7 @@ export function initMessageStoreListeners(): () => void {
 
   return () => {
     unsubscribeUserUpdate()
+    unsubscribeUserOffline()
     unsubscribeReceive()
     unsubscribeAck()
     unsubscribeWithdrawn()

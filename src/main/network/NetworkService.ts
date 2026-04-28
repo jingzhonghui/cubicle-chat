@@ -410,7 +410,7 @@ export class NetworkService {
     if (user) {
       this.onlineUsers.delete(user.macAddress)
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('user:offline', { macAddress: user.macAddress })
+        this.mainWindow.webContents.send('user:offline', { macAddress: user.macAddress, userId: user.userId })
       }
     }
   }

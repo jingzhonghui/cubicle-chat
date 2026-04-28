@@ -385,15 +385,22 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
             </span>
           </div>
         ) : (
-          filteredConversations.map((conv) => (
-            <SessionItem
-              key={conv.conversationId}
-              conversation={conv}
-              isActive={selectedConversationId === conv.conversationId}
-              onClick={() => onSelectConversation(conv.conversationId)}
-              onContextMenu={(e) => handleContextMenu(e, conv.conversationId)}
-            />
-          ))
+          filteredConversations.map((conv) => {
+            const onlineUser = onlineUsers.find(u => u.userId === conv.targetId)
+            const enrichedConv = {
+              ...conv,
+              targetStatus: onlineUser ? onlineUser.status : 'offline'
+            }
+            return (
+              <SessionItem
+                key={conv.conversationId}
+                conversation={enrichedConv}
+                isActive={selectedConversationId === conv.conversationId}
+                onClick={() => onSelectConversation(conv.conversationId)}
+                onContextMenu={(e) => handleContextMenu(e, conv.conversationId)}
+              />
+            )
+          })
         )}
 
         {/* 右键菜单 */}

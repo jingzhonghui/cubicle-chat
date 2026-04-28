@@ -25,8 +25,9 @@ interface UserStore {
   loadOnlineUsers: () => Promise<void>
   updateUserInfo: (info: Partial<UserInfo>) => Promise<boolean>
   addOnlineUser: (user: OnlineUser) => void
-  removeOnlineUser: (userId: string) => void
+  removeOnlineUser: (macAddress: string) => void
   updateOnlineUser: (user: OnlineUser) => void
+  getUserStatus: (userId: string) => string
 }
 
 export const useUserStore = create<UserStore>((set, get) => ({
@@ -89,6 +90,11 @@ export const useUserStore = create<UserStore>((set, get) => ({
     set((state) => ({
       onlineUsers: state.onlineUsers.filter((u) => u.macAddress !== macAddress)
     }))
+  },
+
+  getUserStatus: (userId: string): string => {
+    const user = get().onlineUsers.find((u) => u.userId === userId)
+    return user?.status || 'offline'
   },
 
   updateOnlineUser: (user: OnlineUser) => {
