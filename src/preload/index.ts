@@ -36,6 +36,7 @@ const invokeChannels = [
   'group:sendFile',
   'group:getMembers',
   'group:getCreator',
+  'group:getList',
   'file:openFolder',
   'file:delete',
   'file:saveClipboardImage',

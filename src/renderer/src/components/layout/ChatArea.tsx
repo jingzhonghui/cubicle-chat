@@ -3,6 +3,7 @@ import { useMessageStore, Message } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import MessageBubble from '@components/chat/MessageBubble'
 import { parseAvatar } from './Sidebar'
+import GroupMembersModal from './GroupMembersModal'
 
 type PageType = 'chat' | 'users' | 'files' | 'settings'
 
@@ -52,7 +53,7 @@ function SelectUserHint(): JSX.Element {
 }
 
 // 聊天头组件
-function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isGroup, memberCount }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void; isGroup?: boolean; memberCount?: number }): JSX.Element {
+function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isGroup, memberCount, onMembersClick }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void; isGroup?: boolean; memberCount?: number; onMembersClick?: () => void }): JSX.Element {
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = targetName.charCodeAt(0) % colors.length
 
@@ -95,6 +96,15 @@ function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isG
         </div>
       </div>
       <div className="flex gap-1">
+        {isGroup && (
+          <button
+            onClick={onMembersClick}
+            className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
+            title="查看群成员"
+          >
+            👥
+          </button>
+        )}
         <button
           onClick={onSearchClick}
           className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)] transition-colors border-none bg-transparent cursor-pointer"
@@ -654,6 +664,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   const { userInfo, onlineUsers } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSearch, setShowSearch] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
 
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
@@ -779,6 +790,7 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         onSearchClick={() => setShowSearch(true)}
         isGroup={currentConversation.type === 'group'}
         memberCount={currentConversation.memberIds?.length}
+        onMembersClick={() => setShowMembers(true)}
       />
 
       {/* 消息列表 */}
@@ -793,6 +805,15 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         targetId={currentConversation.targetId}
         disabled={!isTargetOnline}
       />
+
+      {/* 群成员弹窗 */}
+      {showMembers && currentConversation.type === 'group' && (
+        <GroupMembersModal
+          groupName={currentConversation.targetName}
+          memberIds={currentConversation.memberIds || []}
+          onClose={() => setShowMembers(false)}
+        />
+      )}
     </div>
   )
 }

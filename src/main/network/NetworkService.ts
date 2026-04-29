@@ -602,14 +602,33 @@ export class NetworkService {
       isImage: boolean
       thumbnailData?: string
       tcpPort?: number
+      isGroup?: boolean
+      groupId?: string
     }
 
-    // 只处理发给自己的消息
-    if (payload.to !== this.selfUserId) {
+    // 检查是否是群聊文件
+    const isGroupFile = payload.isGroup && payload.groupId
+
+    // 验证接收者
+    if (!isGroupFile && payload.to !== this.selfUserId) {
       return
     }
 
-    log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}, isImage=${payload.isImage}`)
+    // 如果是群聊文件，验证自己是否在群中
+    if (isGroupFile) {
+      const conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
+      if (!conversation) {
+        log.info(`收到群文件但不在群中，忽略: ${payload.fileName}`)
+        return
+      }
+      const members = this.databaseService.getGroupMembers(conversation.conversationId)
+      if (!members.includes(this.selfUserId)) {
+        log.info(`收到群文件但不是群成员，忽略: ${payload.fileName}`)
+        return
+      }
+    }
+
+    log.info(`收到文件传输请求: ${payload.fileName} (${this.formatFileSize(payload.fileSize)}) from ${packet.from.nickname}, isImage=${payload.isImage}, isGroup=${isGroupFile}`)
 
     // 自动接受文件，无需确认
     this.autoAcceptFile(packet, payload)
@@ -626,6 +645,8 @@ export class NetworkService {
     isImage: boolean
     thumbnailData?: string
     tcpPort?: number
+    isGroup?: boolean
+    groupId?: string
   }): Promise<void> {
     const request = {
       from: {
@@ -649,6 +670,11 @@ export class NetworkService {
 
     const { from, fileName, fileSize, fileMd5, mimeType, isImage, thumbnailData } = request
 
+    // 判断是否是群聊文件
+    const isGroupFile = payload.isGroup && payload.groupId
+    const targetId = isGroupFile ? payload.groupId : from.userId
+    const targetType = isGroupFile ? 'group' : 'single'
+
     // 保存文件记录到数据库
     const downloadPath = this.databaseService.getDownloadPath()
     const filePath = path.join(downloadPath, `${Date.now()}_${fileName}`)
@@ -662,7 +688,7 @@ export class NetworkService {
       mimeType,
       fileMd5,
       direction: 'receive',
-      peerId: from.userId,
+      peerId: targetId,
       status: 'pending',
       transferredBytes: 0,
       isImage,
@@ -680,7 +706,7 @@ export class NetworkService {
       fileMd5,
       mimeType,
       direction: 'receive',
-      peerId: from.userId,
+      peerId: targetId,
       peerIp: from.ip,
       status: 'pending',
       transferredBytes: 0,
@@ -694,9 +720,14 @@ export class NetworkService {
     log.info(`图片传输记录已添加: ${payload.transferId}`)
 
     // 查找或创建会话
-    let conversation = this.databaseService.getConversationByTarget(from.userId, 'single')
+    let conversation = this.databaseService.getConversationByTarget(targetId, targetType)
     let isNewConversation = false
     if (!conversation) {
+      if (isGroupFile) {
+        // 群聊文件但没有会话，忽略
+        log.info(`收到群文件但没有群会话: ${payload.groupId}`)
+        return
+      }
       conversation = this.databaseService.createConversation({
         type: 'single',
         targetId: from.userId,

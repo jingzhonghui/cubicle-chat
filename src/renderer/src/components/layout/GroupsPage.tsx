@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useMessageStore } from '@store/messageStore'
+import { useState, useEffect } from 'react'
 import { useUserStore } from '@store/userStore'
 import { parseAvatar } from './Sidebar'
 
@@ -7,24 +6,16 @@ interface GroupsPageProps {
   onSelectGroup: (conversationId: string) => void
 }
 
-interface GroupItemProps {
-  group: {
-    conversationId: string
-    targetId: string
-    targetName: string
-    targetAvatar?: string
-    memberIds?: string[]
-    creatorId?: string
-  }
-  onClick: () => void
+interface GroupInfo {
+  groupId: string
+  groupName: string
+  memberIds: string[]
+  creatorId: string
+  conversationId?: string
 }
 
-function GroupItem({ group, onClick }: GroupItemProps): JSX.Element {
-  const { userInfo, onlineUsers } = useUserStore()
+function GroupItem({ group, onClick }: { group: GroupInfo; onClick: () => void }): JSX.Element {
   const memberCount = group.memberIds?.length || 0
-
-  const avatarEmoji = parseAvatar(group.targetAvatar)
-  const isEmoji = avatarEmoji !== ''
 
   return (
     <div
@@ -34,13 +25,13 @@ function GroupItem({ group, onClick }: GroupItemProps): JSX.Element {
       <div className="flex items-center gap-3">
         <div
           className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-lg"
-          style={{ backgroundColor: isEmoji ? '#E5E7EB' : 'var(--accent)' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
-          {isEmoji ? <span>{avatarEmoji}</span> : <span className="text-white">👫</span>}
+          <span className="text-white">👫</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-            {group.targetName}
+            {group.groupName}
           </div>
           <div className="text-xs text-[var(--text-secondary)] mt-0.5">
             {memberCount} 位成员
@@ -53,18 +44,50 @@ function GroupItem({ group, onClick }: GroupItemProps): JSX.Element {
 }
 
 export default function GroupsPage({ onSelectGroup }: GroupsPageProps): JSX.Element {
-  const { conversations } = useMessageStore()
-  const { userInfo } = useUserStore()
+  const [groups, setGroups] = useState<GroupInfo[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [loading, setLoading] = useState(true)
 
-  const groups = conversations.filter((c) => c.type === 'group')
+  useEffect(() => {
+    loadGroups()
+  }, [])
+
+  const loadGroups = async () => {
+    try {
+      const groupList = await window.electronAPI.invoke<Array<{ groupId: string; groupName: string; memberIds: string[]; creatorId: string }>>('group:getList')
+      setGroups(groupList)
+    } catch (error) {
+      console.error('加载群列表失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredGroups = groups.filter((g) =>
-    g.targetName.toLowerCase().includes(searchQuery.toLowerCase())
+    g.groupName.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const handleGroupClick = (conversationId: string) => {
-    onSelectGroup(conversationId)
+  const handleGroupClick = async (groupId: string) => {
+    // 根据 groupId 查找会话 ID（如果不存在则创建）
+    try {
+      const result = await window.electronAPI.invoke<{ conversationId: string } | null>('conversation:create', {
+        targetId: groupId,
+        type: 'group'
+      })
+      if (result?.conversationId) {
+        onSelectGroup(result.conversationId)
+      }
+    } catch (error) {
+      console.error('进入群聊失败:', error)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="w-[var(--sidebar-w)] bg-[var(--bg-surface)] border-r border-[var(--border)] flex items-center justify-center">
+        <span className="text-[var(--text-secondary)]">加载中...</span>
+      </div>
+    )
   }
 
   return (
@@ -95,7 +118,7 @@ export default function GroupsPage({ onSelectGroup }: GroupsPageProps): JSX.Elem
           <div className="flex flex-col items-center justify-center py-12 text-[var(--text-secondary)]">
             <span className="text-3xl opacity-40">👫</span>
             <span className="text-sm mt-3">
-              {searchQuery ? '未找到���配的群聊' : '暂无群聊'}
+              {searchQuery ? '未找到匹配的群聊' : '暂无群聊'}
             </span>
             {!searchQuery && (
               <span className="text-xs text-[var(--text-disabled)] mt-1">
@@ -106,9 +129,9 @@ export default function GroupsPage({ onSelectGroup }: GroupsPageProps): JSX.Elem
         ) : (
           filteredGroups.map((group) => (
             <GroupItem
-              key={group.conversationId}
+              key={group.groupId}
               group={group}
-              onClick={() => handleGroupClick(group.conversationId)}
+              onClick={() => handleGroupClick(group.groupId)}
             />
           ))
         )}

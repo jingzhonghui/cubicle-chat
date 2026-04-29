@@ -141,11 +141,24 @@ export class DatabaseService {
         group_name TEXT,
         member_ids TEXT,
         creator_id TEXT,
+        group_id TEXT,
         is_pinned INTEGER NOT NULL DEFAULT 0,
         is_muted INTEGER NOT NULL DEFAULT 0,
         unread_count INTEGER NOT NULL DEFAULT 0,
         last_message_id TEXT,
         last_message_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `)
+
+    // 群信息表（与会话分离，删除会话不删除群信息）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS groups (
+        group_id TEXT PRIMARY KEY,
+        group_name TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        creator_id TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -554,6 +567,11 @@ export class DatabaseService {
       now
     )
 
+    // 如果是群聊，同时保存群信息到 groups 表
+    if (data.type === 'group') {
+      this.saveGroup(data.targetId, data.groupName || '群聊', memberIds, creatorId)
+    }
+
     return {
       conversationId,
       type: data.type,
@@ -625,6 +643,9 @@ export class DatabaseService {
     if (!this.db) return false
 
     try {
+      // 获取群 ID
+      const conv = this.db.prepare('SELECT target_id FROM conversations WHERE conversation_id = ?').get(conversationId) as { target_id: string } | undefined
+
       // 删除消息
       const deleteMessages = this.db.prepare('DELETE FROM messages WHERE conversation_id = ?')
       deleteMessages.run(conversationId)
@@ -633,9 +654,87 @@ export class DatabaseService {
       const deleteConv = this.db.prepare('DELETE FROM conversations WHERE conversation_id = ?')
       deleteConv.run(conversationId)
 
+      // 从 groups 表中删除（如果存在）
+      if (conv) {
+        const deleteGroup = this.db.prepare('DELETE FROM groups WHERE group_id = ?')
+        deleteGroup.run(conv.target_id)
+      }
+
       return true
     } catch (error) {
       log.error('删除群聊失败:', error)
+      return false
+    }
+  }
+
+  // 保存群信息到 groups 表
+  saveGroup(groupId: string, groupName: string, memberIds: string[], creatorId: string): boolean {
+    if (!this.db) return false
+
+    try {
+      const now = Date.now()
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO groups (group_id, group_name, member_ids, creator_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      stmt.run(groupId, groupName, JSON.stringify(memberIds), creatorId, now, now)
+      return true
+    } catch (error) {
+      log.error('保存群信息失败:', error)
+      return false
+    }
+  }
+
+  // 获取所有群信息
+  getGroups(): Array<{ groupId: string; groupName: string; memberIds: string[]; creatorId: string }> {
+    if (!this.db) return []
+
+    const rows = this.db.prepare('SELECT * FROM groups ORDER BY created_at DESC').all() as Array<{
+      group_id: string
+      group_name: string
+      member_ids: string
+      creator_id: string
+    }>
+
+    return rows.map(row => ({
+      groupId: row.group_id,
+      groupName: row.group_name,
+      memberIds: JSON.parse(row.member_ids || '[]'),
+      creatorId: row.creator_id
+    }))
+  }
+
+  // 根据 groupId 获取群信息
+  getGroupById(groupId: string): { groupId: string; groupName: string; memberIds: string[]; creatorId: string } | null {
+    if (!this.db) return null
+
+    const row = this.db.prepare('SELECT * FROM groups WHERE group_id = ?').get(groupId) as {
+      group_id: string
+      group_name: string
+      member_ids: string
+      creator_id: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      groupId: row.group_id,
+      groupName: row.group_name,
+      memberIds: JSON.parse(row.member_ids || '[]'),
+      creatorId: row.creator_id
+    }
+  }
+
+  // 更新群成员
+  updateGroupMembersInGroupsTable(groupId: string, memberIds: string[]): boolean {
+    if (!this.db) return false
+
+    try {
+      const stmt = this.db.prepare('UPDATE groups SET member_ids = ?, updated_at = ? WHERE group_id = ?')
+      stmt.run(JSON.stringify(memberIds), Date.now(), groupId)
+      return true
+    } catch (error) {
+      log.error('更新群成员失败:', error)
       return false
     }
   }
@@ -1150,6 +1249,12 @@ export class DatabaseService {
     if (!this.db) return false
 
     try {
+      // 检查是否是群聊
+      const conv = this.db.prepare('SELECT type FROM conversations WHERE conversation_id = ?').get(conversationId) as { type: string } | undefined
+
+      // 如果是群聊，只删除会话和消息，不从 groups 表删除（保留群信息）
+      // 如果是单聊，正常删除
+
       // 删除消息
       const deleteMessages = this.db.prepare('DELETE FROM messages WHERE conversation_id = ?')
       deleteMessages.run(conversationId)

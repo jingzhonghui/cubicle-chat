@@ -514,6 +514,10 @@ function registerIpcHandlers(): void {
     return databaseService?.getGroupCreator(data.conversationId) ?? null
   })
 
+  ipcMain.handle('group:getList', async () => {
+    return databaseService?.getGroups() ?? []
+  })
+
   // 设置
   ipcMain.handle('settings:get', (_, key) => {
     return databaseService?.getSetting(key) ?? null
