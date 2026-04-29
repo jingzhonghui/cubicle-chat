@@ -2,7 +2,7 @@ import { useUserStore } from '@store/userStore'
 import { useMessageStore } from '@store/messageStore'
 import { parseAvatar } from './Sidebar'
 
-type PageType = 'chat' | 'users' | 'files' | 'settings'
+type PageType = 'chat' | 'users' | 'groups' | 'files' | 'settings'
 
 interface NavBarProps {
   currentPage: PageType
@@ -14,6 +14,7 @@ function NavIcon({ type, badge }: { type: PageType; badge?: number }): JSX.Eleme
   const icons: Record<PageType, { icon: string; label: string }> = {
     chat: { icon: '💬', label: '会话列表' },
     users: { icon: '👥', label: '联系人' },
+    groups: { icon: '👫', label: '群聊' },
     files: { icon: '📁', label: '文件' },
     settings: { icon: '⚙️', label: '设置' }
   }
@@ -36,7 +37,7 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
   const { userInfo, onlineUsers } = useUserStore()
   const { conversations } = useMessageStore()
 
-  const navItems: PageType[] = ['chat', 'users', 'files', 'settings']
+  const navItems: PageType[] = ['chat', 'users', 'groups', 'files', 'settings']
 
   // 获取在线用户数量（排除自己）
   const onlineCount = onlineUsers.length
@@ -82,7 +83,7 @@ function NavBar({ currentPage, onNavigate }: NavBarProps): JSX.Element {
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-base)] hover:text-[var(--text-primary)]'
             }
           `}
-          title={page === 'chat' ? '会话列表' : page === 'users' ? `联系人 (${onlineCount}人在线)` : page === 'files' ? '文件传输记录' : '设置'}
+          title={page === 'chat' ? '会话列表' : page === 'users' ? `联系人 (${onlineCount}人在线)` : page === 'groups' ? '群聊列表' : page === 'files' ? '文件传输记录' : '设置'}
         >
           <NavIcon
             type={page}

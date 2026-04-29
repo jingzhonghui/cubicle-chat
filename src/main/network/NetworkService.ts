@@ -22,6 +22,7 @@ export type PacketType =
   | 'FILE_NOTIFY'
   | 'FILE_ACCEPT'
   | 'GROUP_CREATE'
+  | 'GROUP_INVITE'
   | 'GROUP_MESSAGE'
   | 'GROUP_LEAVE'
   | 'TYPING'
@@ -314,6 +315,18 @@ export class NetworkService {
         case 'FILE_ACCEPT':
           this.handleFileAccept(packet)
           break
+        case 'GROUP_CREATE':
+          this.handleGroupCreate(packet)
+          break
+        case 'GROUP_INVITE':
+          this.handleGroupInvite(packet)
+          break
+        case 'GROUP_MESSAGE':
+          this.handleGroupMessage(packet)
+          break
+        case 'GROUP_LEAVE':
+          this.handleGroupLeave(packet)
+          break
       }
     } catch (error) {
       log.error('处理消息失败:', error)
@@ -458,15 +471,23 @@ export class NetworkService {
       return
     }
 
-    // 保存消息到数据库
-    this.databaseService.saveMessage({
-      messageId: packet.msgId,
-      conversationId: conversation.conversationId,
-      senderId: packet.from.userId,
-      contentType: payload.contentType as 'text' | 'emoji' | 'image' | 'file',
-      content: payload.content,
-      replyToId: payload.replyTo
-    })
+    // 保存消息到数据库（重复则忽略）
+    try {
+      this.databaseService.saveMessage({
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        contentType: payload.contentType as 'text' | 'emoji' | 'image' | 'file',
+        content: payload.content,
+        replyToId: payload.replyTo
+      })
+    } catch (error: any) {
+      if (error.message?.includes('UNIQUE constraint failed')) {
+        log.info(`忽略重复消息: ${packet.msgId}`)
+        return
+      }
+      throw error
+    }
 
     // 发送 ACK
     this.sendPacket('TEXT_ACK', { ackMsgId: packet.msgId })
@@ -777,7 +798,653 @@ export class NetworkService {
     this.startFileSend(payload.transferId, payload.offset || 0, payload.tcpPort)
   }
 
-  // 格式化文件大小
+  // ========== 群聊处理 ==========
+
+  private handleGroupCreate(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      groupId: string
+      groupName: string
+      memberIds: string[]
+      creatorId: string
+    }
+
+    // 检查自己是否被邀请
+    if (!payload.memberIds.includes(this.selfUserId)) {
+      return
+    }
+
+    log.info(`收到群创建通知: ${payload.groupName}, members=${payload.memberIds.length}`)
+
+    // 保存创建者信息
+    this.databaseService.saveUser({
+      userId: packet.from.userId,
+      macAddress: packet.from.macAddress || packet.from.userId,
+      nickname: packet.from.nickname,
+      ip: packet.from.ip,
+      port: packet.from.port,
+      avatar: packet.from.avatar,
+      status: packet.from.status,
+      lastHeartbeat: Date.now(),
+      version: packet.from.version
+    })
+
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
+    let isNewConversation = false
+    if (!conversation) {
+      conversation = this.databaseService.createConversation({
+        type: 'group',
+        targetId: payload.groupId,
+        groupName: payload.groupName,
+        memberIds: payload.memberIds,
+        creatorId: payload.creatorId
+      })
+      isNewConversation = !!conversation
+    } else {
+      // 更新成员列表
+      this.databaseService.updateGroupMembers(conversation.conversationId, payload.memberIds)
+    }
+
+    if (conversation && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:receive', {
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        senderName: packet.from.nickname,
+        contentType: 'system',
+        content: `${packet.from.nickname} 创建了群聊`,
+        sentAt: packet.timestamp,
+        isNewConversation
+      })
+
+      if (isNewConversation) {
+        this.mainWindow.webContents.send('conversation:new', conversation)
+      }
+    }
+  }
+
+  private handleGroupInvite(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      groupId: string
+      groupName: string
+      memberIds: string[]
+      inviterId: string
+    }
+
+    // 检查自己是否被邀请
+    if (!payload.memberIds.includes(this.selfUserId)) {
+      return
+    }
+
+    log.info(`收到群邀请: ${payload.groupName}, members=${payload.memberIds.length}`)
+
+    // 查找或创建会话
+    let conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
+    let isNewConversation = false
+    if (!conversation) {
+      conversation = this.databaseService.createConversation({
+        type: 'group',
+        targetId: payload.groupId,
+        groupName: payload.groupName,
+        memberIds: payload.memberIds
+      })
+      isNewConversation = !!conversation
+    } else {
+      // 更新成员列表
+      this.databaseService.updateGroupMembers(conversation.conversationId, payload.memberIds)
+    }
+
+    if (conversation && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:receive', {
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        senderName: packet.from.nickname,
+        contentType: 'system',
+        content: `${packet.from.nickname} 邀请你加入群聊`,
+        sentAt: packet.timestamp,
+        isNewConversation
+      })
+
+      if (isNewConversation) {
+        this.mainWindow.webContents.send('conversation:new', conversation)
+      }
+    }
+  }
+
+  private handleGroupMessage(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      groupId: string
+      content: string
+      contentType: string
+      replyTo?: string
+    }
+
+    // 查找本地群聊会话
+    let conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
+
+    // 如果本地没有该群聊会话，说明自己不在群里，忽略此消息
+    if (!conversation) {
+      return
+    }
+
+    // 再次确认自己是群成员（防止幽灵群聊）
+    const members = this.databaseService.getGroupMembers(conversation.conversationId)
+    if (!members.includes(this.selfUserId)) {
+      return
+    }
+
+    log.info(`收到群消息: group=${payload.groupId}, from=${packet.from.nickname}`)
+
+    const isNewConversation = false
+
+    // 保存消息到数据库（重复则忽略）
+    try {
+      this.databaseService.saveMessage({
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        contentType: payload.contentType as 'text' | 'emoji' | 'image' | 'file',
+        content: payload.content,
+        replyToId: payload.replyTo
+      })
+    } catch (error: any) {
+      if (error.message?.includes('UNIQUE constraint failed')) {
+        log.info(`忽略重复群消息: ${packet.msgId}`)
+        return
+      }
+      throw error
+    }
+
+    // 发送 ACK
+    this.sendPacketTo({
+      magic: MAGIC,
+      version: VERSION,
+      type: 'TEXT_ACK',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: { ackMsgId: packet.msgId }
+    }, packet.from.ip)
+
+    // 通知渲染进程
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:receive', {
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: packet.from.userId,
+        senderName: packet.from.nickname,
+        contentType: payload.contentType,
+        content: payload.content,
+        sentAt: packet.timestamp,
+        isNewConversation
+      })
+
+      if (isNewConversation && conversation) {
+        this.mainWindow.webContents.send('conversation:new', conversation)
+      }
+    }
+
+    if (this.callbacks.onNewMessage) {
+      this.callbacks.onNewMessage()
+    }
+  }
+
+  private handleGroupLeave(packet: UdpPacket): void {
+    const payload = packet.payload as {
+      groupId: string
+      leaverId: string
+    }
+
+    const conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
+    if (!conversation) return
+
+    // 更新成员列表（移除退出的成员）
+    const members = this.databaseService.getGroupMembers(conversation.conversationId)
+    const newMembers = members.filter(id => id !== payload.leaverId)
+    this.databaseService.updateGroupMembers(conversation.conversationId, newMembers)
+
+    // 保存系统消息
+    this.databaseService.saveMessage({
+      messageId: packet.msgId,
+      conversationId: conversation.conversationId,
+      senderId: payload.leaverId,
+      contentType: 'system',
+      content: `${packet.from.nickname} 退出了群聊`
+    })
+
+    // 通知渲染进程
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('msg:receive', {
+        messageId: packet.msgId,
+        conversationId: conversation.conversationId,
+        senderId: payload.leaverId,
+        senderName: packet.from.nickname,
+        contentType: 'system',
+        content: `${packet.from.nickname} 退出了群聊`,
+        sentAt: packet.timestamp,
+        isNewConversation: false
+      })
+
+      // 通知成员变更
+      this.mainWindow.webContents.send('group:members', {
+        conversationId: conversation.conversationId,
+        memberIds: newMembers
+      })
+    }
+  }
+
+  // ========== 群聊公开方法 ==========
+
+  async createGroup(groupName: string, memberIds: string[]): Promise<{ success: boolean; groupId?: string; error?: string }> {
+    const groupId = uuidv4()
+    const allMembers = Array.from(new Set([this.selfUserId, ...memberIds]))
+
+    // 创建会话
+    const conversation = this.databaseService.createConversation({
+      type: 'group',
+      targetId: groupId,
+      groupName,
+      memberIds: allMembers,
+      creatorId: this.selfUserId
+    })
+
+    if (!conversation) {
+      return { success: false, error: '创建会话失败' }
+    }
+
+    // 发送 GROUP_CREATE 广播给所有成员
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'GROUP_CREATE',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        groupId,
+        groupName,
+        memberIds: allMembers,
+        creatorId: this.selfUserId
+      }
+    }
+
+    this.sendPacketDirect(packet)
+
+    // 通知渲染进程
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('conversation:new', conversation)
+    }
+
+    return { success: true, groupId }
+  }
+
+  async inviteToGroup(groupId: string, conversationId: string, userIds: string[]): Promise<{ success: boolean; error?: string }> {
+    const conversation = this.databaseService.getConversationByTarget(groupId, 'group')
+    if (!conversation) {
+      return { success: false, error: '群聊不存在' }
+    }
+
+    // 只有创建者可以邀请
+    const creatorId = this.databaseService.getGroupCreator(conversationId)
+    if (creatorId !== this.selfUserId) {
+      return { success: false, error: '只有群主可以邀请成员' }
+    }
+
+    // 更新成员列表
+    const currentMembers = this.databaseService.getGroupMembers(conversationId)
+    const newMembers = Array.from(new Set([...currentMembers, ...userIds]))
+    this.databaseService.updateGroupMembers(conversationId, newMembers)
+
+    // 发送 GROUP_INVITE 广播给新成员
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'GROUP_INVITE',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        groupId,
+        groupName: conversation.targetName,
+        memberIds: newMembers,
+        inviterId: this.selfUserId
+      }
+    }
+
+    this.sendPacketDirect(packet)
+
+    return { success: true }
+  }
+
+  async leaveGroup(groupId: string, conversationId: string): Promise<{ success: boolean; error?: string }> {
+    const conversation = this.databaseService.getConversationByTarget(groupId, 'group')
+    if (!conversation) {
+      return { success: false, error: '群聊不存在' }
+    }
+
+    // 从成员列表中移除自己
+    const members = this.databaseService.getGroupMembers(conversationId)
+    const newMembers = members.filter(id => id !== this.selfUserId)
+    this.databaseService.updateGroupMembers(conversationId, newMembers)
+
+    // 发送 GROUP_LEAVE 广播
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'GROUP_LEAVE',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        groupId,
+        leaverId: this.selfUserId
+      }
+    }
+
+    this.sendPacketDirect(packet)
+
+    return { success: true }
+  }
+
+  async deleteGroup(groupId: string, conversationId: string): Promise<{ success: boolean; error?: string }> {
+    const conversation = this.databaseService.getConversationByTarget(groupId, 'group')
+    if (!conversation) {
+      return { success: false, error: '群聊不存在' }
+    }
+
+    // 只有创建者可以删除
+    const creatorId = this.databaseService.getGroupCreator(conversationId)
+    if (creatorId !== this.selfUserId) {
+      return { success: false, error: '只有群主可以删除群聊' }
+    }
+
+    // 从数据库中删除
+    this.databaseService.deleteGroup(conversationId)
+
+    // 发送 GROUP_LEAVE 广播（通知所有成员群已解散）
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'GROUP_LEAVE',
+      msgId: uuidv4(),
+      timestamp: Date.now(),
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        groupId,
+        leaverId: this.selfUserId
+      }
+    }
+
+    this.sendPacketDirect(packet)
+
+    return { success: true }
+  }
+
+  async sendGroupMessage(data: {
+    groupId: string
+    conversationId: string
+    content: string
+    contentType: string
+    replyTo?: string
+  }): Promise<{ success: boolean; messageId?: string }> {
+    const messageId = uuidv4()
+    const now = Date.now()
+
+    // 保存消息到数据库
+    try {
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId: data.conversationId,
+        senderId: this.selfUserId,
+        contentType: data.contentType as 'text' | 'emoji' | 'image' | 'file',
+        content: data.content,
+        replyToId: data.replyTo
+      })
+    } catch (error) {
+      log.error('保存群消息失败:', error)
+    }
+
+    // 广播群消息
+    const packet: UdpPacket = {
+      magic: MAGIC,
+      version: VERSION,
+      type: 'GROUP_MESSAGE',
+      msgId: messageId,
+      timestamp: now,
+      from: {
+        userId: this.selfUserId,
+        macAddress: this.selfMacAddress,
+        nickname: this.selfNickname,
+        ip: this.localIP || this.getLocalIP(),
+        port: this.tcpPort,
+        avatar: this.selfAvatar,
+        status: this.selfStatus,
+        version: app.getVersion()
+      },
+      payload: {
+        groupId: data.groupId,
+        content: data.content,
+        contentType: data.contentType,
+        replyTo: data.replyTo
+      }
+    }
+
+    this.sendPacketDirect(packet)
+
+    return { success: true, messageId }
+  }
+
+  // ========== 文件传输（群聊）==========
+
+  async sendGroupFile(groupId: string, conversationId: string, filePath: string): Promise<{ success: boolean; transferId?: string; error?: string }> {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' }
+      }
+
+      const stats = fs.statSync(filePath)
+      const fileSize = stats.size
+      const fileName = path.basename(filePath)
+      const ext = path.extname(fileName).toLowerCase()
+
+      const fileMd5 = await this.calculateFileMd5(filePath)
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+      const isImage = imageExtensions.includes(ext)
+      const mimeType = this.getMimeType(ext)
+      const transferId = generateTransferId()
+
+      const fileRecord: FileRecord = {
+        fileId: transferId,
+        fileName,
+        filePath,
+        fileSize,
+        mimeType,
+        fileMd5,
+        direction: 'send',
+        peerId: groupId,
+        status: 'pending',
+        transferredBytes: 0,
+        isImage,
+        createdAt: Date.now()
+      }
+      this.databaseService.saveFile(fileRecord)
+
+      const transfer: FileTransfer = {
+        transferId,
+        fileName,
+        filePath,
+        fileSize,
+        fileMd5,
+        mimeType,
+        direction: 'send',
+        peerId: groupId,
+        peerIp: '255.255.255.255',
+        status: 'pending',
+        transferredBytes: 0,
+        isImage,
+        progress: 0,
+        speed: 0,
+        startTime: Date.now()
+      }
+      this.tcpTransferService?.addTransfer(transfer)
+
+      // 生成缩略图
+      let thumbnailData: string | undefined
+      if (isImage) {
+        thumbnailData = await this.generateThumbnail(filePath)
+      }
+
+      // 保存消息
+      const messageId = uuidv4()
+      const now = Date.now()
+      this.databaseService.saveMessage({
+        messageId,
+        conversationId,
+        senderId: this.selfUserId,
+        contentType: isImage ? 'image' : 'file',
+        content: fileName,
+        fileId: transferId
+      })
+      this.databaseService.updateConversationLastMessage(conversationId, messageId, now)
+
+      // 广播 FILE_NOTIFY（群聊）
+      const packet: UdpPacket = {
+        magic: MAGIC,
+        version: VERSION,
+        type: 'FILE_NOTIFY',
+        msgId: uuidv4(),
+        timestamp: now,
+        from: {
+          userId: this.selfUserId,
+          macAddress: this.selfMacAddress,
+          nickname: this.selfNickname,
+          ip: this.localIP || this.getLocalIP(),
+          port: this.tcpPort,
+          avatar: this.selfAvatar,
+          status: this.selfStatus,
+          version: app.getVersion()
+        },
+        payload: {
+          to: groupId,
+          transferId,
+          fileName,
+          fileSize,
+          fileMd5,
+          fileType: mimeType,
+          isImage,
+          thumbnailData,
+          tcpPort: this.tcpPort,
+          isGroup: true,
+          groupId
+        }
+      }
+
+      this.sendPacketDirect(packet)
+
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('file:send-start', {
+          transferId,
+          fileName,
+          fileSize,
+          isImage,
+          toUserId: groupId,
+          toNickname: '群聊'
+        })
+      }
+
+      return { success: true, transferId }
+    } catch (error) {
+      log.error('发送群文件失败:', error)
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // 开始发送文件（收到 FILE_ACCEPT 后）
+  private async startFileSend(transferId: string, offset: number = 0, targetTcpPort?: number): Promise<void> {
+    log.info(`开始文件发送: transferId=${transferId}, offset=${offset}, targetTcpPort=${targetTcpPort}`)
+
+    const transfer = this.tcpTransferService?.getTransfer(transferId)
+    if (!transfer) {
+      log.error(`未找到传输记录: ${transferId}`)
+      const allTransfers = this.tcpTransferService?.getAllTransfers()
+      log.info(`可用的传输记录: ${allTransfers?.map(t => t.transferId).join(', ')}`)
+      return
+    }
+
+    log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}`)
+
+    const targetUser = this.findUserByUserId(transfer.peerId)
+    if (!targetUser) {
+      log.error(`用户不在线: ${transfer.peerId}`)
+      log.info(`在线用户: ${Array.from(this.onlineUsers.values()).map(u => `${u.nickname}(${u.userId})`).join(', ')}`)
+      return
+    }
+
+    const tcpPort = targetTcpPort || targetUser.port || TCP_PORT
+    log.info(`目标用户: ${targetUser.nickname} (${targetUser.ip}:${tcpPort})`)
+
+    try {
+      await this.tcpTransferService?.sendFile(
+        targetUser.ip,
+        tcpPort,
+        transfer.filePath,
+        transfer.peerId,
+        transferId,
+        offset
+      )
+      log.info(`文件发送完成: ${transfer.fileName}`)
+    } catch (error) {
+      log.error(`文件发送失败: ${error}`)
+      this.databaseService.updateFileStatus(transferId, 'failed')
+    }
+  }
+
   private formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -945,49 +1612,6 @@ export class NetworkService {
     } catch (error) {
       log.error('发送文件失败:', error)
       return { success: false, error: String(error) }
-    }
-  }
-
-  // 开始文件发送（收到 FILE_ACCEPT 后）
-  private async startFileSend(transferId: string, offset: number = 0, targetTcpPort?: number): Promise<void> {
-    log.info(`开始文件发送: transferId=${transferId}, offset=${offset}, targetTcpPort=${targetTcpPort}`)
-    
-    const transfer = this.tcpTransferService?.getTransfer(transferId)
-    if (!transfer) {
-      log.error(`未找到传输记录: ${transferId}`)
-      // 列出所有可用的传输记录
-      const allTransfers = this.tcpTransferService?.getAllTransfers()
-      log.info(`可用的传输记录: ${allTransfers?.map(t => t.transferId).join(', ')}`)
-      return
-    }
-
-    log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}`)
-
-    const targetUser = this.findUserByUserId(transfer.peerId)
-    if (!targetUser) {
-      log.error(`用户不在线: ${transfer.peerId}`)
-      // 列出所有在线用户
-      log.info(`在线用户: ${Array.from(this.onlineUsers.values()).map(u => `${u.nickname}(${u.userId})`).join(', ')}`)
-      return
-    }
-
-    // 使用接收方提供的 TCP 端口，如果没有则使用默认端口
-    const tcpPort = targetTcpPort || targetUser.port || TCP_PORT
-    log.info(`目标用户: ${targetUser.nickname} (${targetUser.ip}:${tcpPort})`)
-
-    try {
-      await this.tcpTransferService?.sendFile(
-        targetUser.ip,
-        tcpPort,
-        transfer.filePath,
-        transfer.peerId,
-        transferId,
-        offset
-      )
-      log.info(`文件发送完成: ${transfer.fileName}`)
-    } catch (error) {
-      log.error(`文件发送失败: ${error}`)
-      this.databaseService.updateFileStatus(transferId, 'failed')
     }
   }
 

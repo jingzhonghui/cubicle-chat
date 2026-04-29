@@ -52,7 +52,7 @@ function SelectUserHint(): JSX.Element {
 }
 
 // 聊天头组件
-function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void }): JSX.Element {
+function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isGroup, memberCount }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void; isGroup?: boolean; memberCount?: number }): JSX.Element {
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = targetName.charCodeAt(0) % colors.length
 
@@ -88,7 +88,10 @@ function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick }: {
       <div className="flex-1">
         <div className="text-sm font-semibold text-[var(--text-primary)]">{targetName}</div>
         <div className="text-xs" style={{ color: targetStatus ? statusColors[targetStatus] : 'var(--text-secondary)' }}>
-          {targetStatus ? `● ${statusLabels[targetStatus]}` : ''}
+          {isGroup
+            ? `${memberCount || 0} 人`
+            : (targetStatus ? `● ${statusLabels[targetStatus]}` : '')
+          }
         </div>
       </div>
       <div className="flex gap-1">
@@ -233,7 +236,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { sendMessage, sendFileMessage } = useMessageStore()
+  const { sendMessage, sendFileMessage, sendGroupMessage } = useMessageStore()
 
   // 切换会话时清空输入框内容
   useEffect(() => {
@@ -247,7 +250,14 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   const handleSend = async () => {
     if (!message.trim() || disabled) return
 
-    await sendMessage(conversationId, message.trim())
+    const conversation = useMessageStore.getState().conversations.find((c) => c.conversationId === conversationId)
+    if (!conversation) return
+
+    if (conversation.type === 'group') {
+      await sendGroupMessage(conversationId, message.trim())
+    } else {
+      await sendMessage(conversationId, message.trim())
+    }
     setMessage('')
     textareaRef.current?.focus()
   }
@@ -296,6 +306,8 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
     const fileName = getFileName(filePath)
     const isImage = isImageFile(fileName)
+    const conversation = useMessageStore.getState().conversations.find((c) => c.conversationId === conversationId)
+    if (!conversation) return
 
     try {
       // 先添加到本地消息列表（临时消息）
@@ -304,7 +316,16 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
       await sendFileMessage(conversationId, content, tempFileId, isImage)
 
       // 然后发送文件
-      const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+      let result: { success: boolean; transferId?: string; error?: string } | null = null
+      if (conversation.type === 'group') {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('group:sendFile', {
+          groupId: conversation.targetId,
+          conversationId,
+          filePath
+        })
+      } else {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+      }
 
       if (result?.success && result.transferId) {
         const { useMessageStore } = await import('@store/messageStore')
@@ -629,7 +650,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAreaProps): JSX.Element {
-  const { conversations, messages } = useMessageStore()
+  const { conversations, messages, sendGroupMessage, sendGroupFile, sendFileMessage } = useMessageStore()
   const { userInfo, onlineUsers } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -637,9 +658,11 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
 
-  // 判断对方是否在线
+  // 判断对方是否在线（单聊）或群聊始终启用
   const isTargetOnline = currentConversation
-    ? onlineUsers.some((u) => u.userId === currentConversation.targetId)
+    ? currentConversation.type === 'group'
+      ? true
+      : onlineUsers.some((u) => u.userId === currentConversation.targetId)
     : false
 
   // 滚动到底部
@@ -754,6 +777,8 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         targetAvatar={currentConversation.targetAvatar}
         targetStatus={isTargetOnline ? (currentConversation.targetStatus || 'online') : 'offline'}
         onSearchClick={() => setShowSearch(true)}
+        isGroup={currentConversation.type === 'group'}
+        memberCount={currentConversation.memberIds?.length}
       />
 
       {/* 消息列表 */}

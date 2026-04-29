@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { useMessageStore } from '@store/messageStore'
 import { useUserStore } from '@store/userStore'
 import UsersPage from './UsersPage'
+import GroupsPage from './GroupsPage'
 
-type PageType = 'chat' | 'users' | 'files' | 'settings'
+type PageType = 'chat' | 'users' | 'groups' | 'files' | 'settings'
 
 // 内置头像映射（与 SettingsPage.tsx 保持一致）
 const BUILTIN_AVATAR_MAP: Record<string, string> = {
@@ -269,8 +270,8 @@ function SessionItem({
 function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: SidebarProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conversationId: string | undefined } | null>(null)
-  const { conversations, createConversation, deleteConversation } = useMessageStore()
-  const { onlineUsers } = useUserStore()
+  const { conversations, createConversation, deleteConversation, leaveGroup, deleteGroup } = useMessageStore()
+  const { onlineUsers, userInfo } = useUserStore()
 
   // 从用户页面选择用户时处理会话创建
   const handleUserSelect = async (userId: string) => {
@@ -316,11 +317,30 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
     const conv = conversations.find(c => c.conversationId === conversationId)
     if (!conv) return
 
-    if (confirm('删除会话会清空聊天记录')) {
-      await deleteConversation(conversationId)
-      // 如果删除的是当前选中的会话，清除选中状态
-      if (selectedConversationId === conversationId) {
-        onSelectConversation(null)
+    if (conv.type === 'group') {
+      // 群聊：创建者可删除，其他成员可退出
+      const isCreator = conv.creatorId === userInfo?.userId
+      if (isCreator) {
+        if (confirm('删除群聊会清空所有聊天记录')) {
+          await deleteGroup(conv.targetId, conv.conversationId)
+          if (selectedConversationId === conversationId) {
+            onSelectConversation(null)
+          }
+        }
+      } else {
+        if (confirm('退出群聊后将不再接收消息')) {
+          await leaveGroup(conv.targetId, conv.conversationId)
+          if (selectedConversationId === conversationId) {
+            onSelectConversation(null)
+          }
+        }
+      }
+    } else {
+      if (confirm('删除会话会清空聊天记录')) {
+        await deleteConversation(conversationId)
+        if (selectedConversationId === conversationId) {
+          onSelectConversation(null)
+        }
       }
     }
   }
@@ -343,6 +363,15 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
     return (
       <UsersPage
         onSelectUser={handleUserSelect}
+      />
+    )
+  }
+
+  // 群聊列表页面
+  if (currentPage === 'groups') {
+    return (
+      <GroupsPage
+        onSelectGroup={(conversationId) => onSelectConversation(conversationId)}
       />
     )
   }
@@ -386,10 +415,17 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
           </div>
         ) : (
           filteredConversations.map((conv) => {
-            const onlineUser = onlineUsers.find(u => u.userId === conv.targetId)
+            // 群聊始终显示为在线，单聊才查在线用户状态
+            let targetStatus: string
+            if (conv.type === 'group') {
+              targetStatus = 'online'
+            } else {
+              const onlineUser = onlineUsers.find(u => u.userId === conv.targetId)
+              targetStatus = onlineUser ? onlineUser.status : 'offline'
+            }
             const enrichedConv = {
               ...conv,
-              targetStatus: onlineUser ? onlineUser.status : 'offline'
+              targetStatus
             }
             return (
               <SessionItem

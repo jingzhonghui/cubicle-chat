@@ -31,6 +31,8 @@ export interface Conversation {
   targetName: string
   targetAvatar?: string
   targetStatus?: string
+  memberIds?: string[]
+  creatorId?: string
   lastMessage?: string
   lastMessageAt?: number
   unreadCount: number
@@ -138,6 +140,7 @@ export class DatabaseService {
         target_id TEXT NOT NULL,
         group_name TEXT,
         member_ids TEXT,
+        creator_id TEXT,
         is_pinned INTEGER NOT NULL DEFAULT 0,
         is_muted INTEGER NOT NULL DEFAULT 0,
         unread_count INTEGER NOT NULL DEFAULT 0,
@@ -384,6 +387,8 @@ export class DatabaseService {
       type: string
       target_id: string
       group_name: string
+      member_ids: string
+      creator_id: string
       is_pinned: number
       is_muted: number
       unread_count: number
@@ -406,6 +411,11 @@ export class DatabaseService {
         lastMessage = msg?.content || ''
       }
 
+      let members: string[] = []
+      if (row.member_ids) {
+        try { members = JSON.parse(row.member_ids) } catch { members = [] }
+      }
+
       return {
         conversationId: row.conversation_id,
         type: row.type as 'single' | 'group',
@@ -413,6 +423,8 @@ export class DatabaseService {
         targetName: row.type === 'group' ? row.group_name || '群聊' : target?.nickname || '未知用户',
         targetAvatar: target?.avatar,
         targetStatus: target?.status,
+        memberIds: members,
+        creatorId: row.creator_id,
         lastMessage,
         lastMessageAt: row.last_message_at,
         unreadCount: row.unread_count,
@@ -431,6 +443,8 @@ export class DatabaseService {
       type: string
       target_id: string
       group_name: string
+      member_ids: string
+      creator_id: string
       is_pinned: number
       is_muted: number
       unread_count: number
@@ -452,6 +466,11 @@ export class DatabaseService {
       lastMessage = msg?.content || ''
     }
 
+    let members: string[] = []
+    if (row.member_ids) {
+      try { members = JSON.parse(row.member_ids) } catch { members = [] }
+    }
+
     return {
       conversationId: row.conversation_id,
       type: row.type as 'single' | 'group',
@@ -459,6 +478,8 @@ export class DatabaseService {
       targetName: row.type === 'group' ? row.group_name || '群聊' : target?.nickname || '未知用户',
       targetAvatar: target?.avatar,
       targetStatus: target?.status,
+      memberIds: members,
+      creatorId: row.creator_id,
       lastMessage,
       lastMessageAt: row.last_message_at,
       unreadCount: row.unread_count,
@@ -467,10 +488,12 @@ export class DatabaseService {
     }
   }
 
-  createConversation(data: { 
-    type: 'single' | 'group'; 
-    targetId: string; 
+  createConversation(data: {
+    type: 'single' | 'group';
+    targetId: string;
     groupName?: string;
+    memberIds?: string[];
+    creatorId?: string;
     targetInfo?: { nickname: string; avatar?: string; status?: string }
   }): Conversation | null {
     if (!this.db) return null
@@ -481,20 +504,28 @@ export class DatabaseService {
       type: string;
       target_id: string;
       group_name: string;
+      member_ids: string;
+      creator_id: string;
       is_pinned: number;
       is_muted: number;
       unread_count: number;
     } | undefined
 
     if (existingConv) {
-      // 返回已存在的会话
+      // 解析已存在会话的 memberIds
+      let existingMemberIds: string[] = []
+      if (existingConv.member_ids) {
+        try { existingMemberIds = JSON.parse(existingConv.member_ids) } catch { existingMemberIds = [] }
+      }
       return {
         conversationId: existingConv.conversation_id,
         type: existingConv.type as 'single' | 'group',
         targetId: existingConv.target_id,
-        targetName: data.targetInfo?.nickname || data.groupName || '未知用户',
+        targetName: data.targetInfo?.nickname || data.groupName || existingConv.group_name || '未知用户',
         targetAvatar: data.targetInfo?.avatar,
         targetStatus: data.targetInfo?.status,
+        memberIds: existingMemberIds,
+        creatorId: existingConv.creator_id,
         unreadCount: existingConv.unread_count,
         isPinned: Boolean(existingConv.is_pinned),
         isMuted: Boolean(existingConv.is_muted)
@@ -503,11 +534,13 @@ export class DatabaseService {
 
     const conversationId = this.generateUUID()
     const now = Date.now()
+    const memberIds = data.memberIds || []
+    const creatorId = data.creatorId || ''
 
     const stmt = this.db.prepare(`
       INSERT INTO conversations (
-        conversation_id, type, target_id, group_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        conversation_id, type, target_id, group_name, member_ids, creator_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -515,6 +548,8 @@ export class DatabaseService {
       data.type,
       data.targetId,
       data.groupName || null,
+      memberIds.length > 0 ? JSON.stringify(memberIds) : null,
+      creatorId || null,
       now,
       now
     )
@@ -526,9 +561,82 @@ export class DatabaseService {
       targetName: data.targetInfo?.nickname || data.groupName || '新会话',
       targetAvatar: data.targetInfo?.avatar,
       targetStatus: data.targetInfo?.status,
+      memberIds,
+      creatorId,
       unreadCount: 0,
       isPinned: false,
       isMuted: false
+    }
+  }
+
+  // 获取群成员列表
+  getGroupMembers(conversationId: string): string[] {
+    if (!this.db) return []
+
+    const stmt = this.db.prepare('SELECT member_ids FROM conversations WHERE conversation_id = ?')
+    const row = stmt.get(conversationId) as { member_ids: string } | undefined
+    if (!row || !row.member_ids) return []
+    try {
+      return JSON.parse(row.member_ids) as string[]
+    } catch {
+      return []
+    }
+  }
+
+  // 更新群成员列表
+  updateGroupMembers(conversationId: string, memberIds: string[]): boolean {
+    if (!this.db) return false
+
+    try {
+      const stmt = this.db.prepare('UPDATE conversations SET member_ids = ?, updated_at = ? WHERE conversation_id = ?')
+      stmt.run(JSON.stringify(memberIds), Date.now(), conversationId)
+      return true
+    } catch (error) {
+      log.error('更新群成员失败:', error)
+      return false
+    }
+  }
+
+  // 获取群创建者
+  getGroupCreator(conversationId: string): string | null {
+    if (!this.db) return null
+
+    const stmt = this.db.prepare('SELECT creator_id FROM conversations WHERE conversation_id = ?')
+    const row = stmt.get(conversationId) as { creator_id: string } | undefined
+    return row?.creator_id || null
+  }
+
+  // 退出群聊（从成员列表中移除自己）
+  leaveGroup(conversationId: string, userId: string): boolean {
+    if (!this.db) return false
+
+    try {
+      const members = this.getGroupMembers(conversationId)
+      const newMembers = members.filter(id => id !== userId)
+      return this.updateGroupMembers(conversationId, newMembers)
+    } catch (error) {
+      log.error('退出群聊失败:', error)
+      return false
+    }
+  }
+
+  // 删除群聊
+  deleteGroup(conversationId: string): boolean {
+    if (!this.db) return false
+
+    try {
+      // 删除消息
+      const deleteMessages = this.db.prepare('DELETE FROM messages WHERE conversation_id = ?')
+      deleteMessages.run(conversationId)
+
+      // 删除会话
+      const deleteConv = this.db.prepare('DELETE FROM conversations WHERE conversation_id = ?')
+      deleteConv.run(conversationId)
+
+      return true
+    } catch (error) {
+      log.error('删除群聊失败:', error)
+      return false
     }
   }
 

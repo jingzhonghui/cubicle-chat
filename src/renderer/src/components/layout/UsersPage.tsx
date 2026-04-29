@@ -1,9 +1,102 @@
 import { useState } from 'react'
 import { useUserStore } from '@store/userStore'
+import { useMessageStore } from '@store/messageStore'
 import { parseAvatar } from './Sidebar'
 
 interface UsersPageProps {
   onSelectUser: (userId: string) => void
+}
+
+// 创建群聊弹窗
+function CreateGroupModal({
+  onClose,
+  onCreate
+}: {
+  onClose: () => void
+  onCreate: (name: string, memberIds: string[]) => void
+}): JSX.Element {
+  const { onlineUsers, userInfo } = useUserStore()
+  const [groupName, setGroupName] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const toggleMember = (userId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }
+
+  const handleCreate = () => {
+    if (!groupName.trim() || selectedIds.size === 0) return
+    onCreate(groupName.trim(), Array.from(selectedIds))
+    onClose()
+  }
+
+  const availableUsers = onlineUsers.filter((u) => u.userId !== userInfo?.userId)
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
+      <div className="bg-[var(--bg-surface)] rounded-xl shadow-lg w-[360px] max-h-[80vh] flex flex-col">
+        <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">创建群聊</span>
+          <button onClick={onClose} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-lg leading-none border-none bg-transparent cursor-pointer">✕</button>
+        </div>
+
+        <div className="px-4 py-3">
+          <input
+            type="text"
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+            placeholder="群聊名称"
+            className="w-full px-3 py-2 text-sm bg-[var(--bg-input)] rounded-lg outline-none border border-transparent focus:border-[var(--accent)] text-[var(--text-primary)] placeholder-[var(--text-disabled)]"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-2">
+          <div className="text-xs text-[var(--text-secondary)] mb-2">选择成员（{selectedIds.size} 人）</div>
+          {availableUsers.length === 0 ? (
+            <div className="text-sm text-[var(--text-disabled)] text-center py-4">暂无可添加的成员</div>
+          ) : (
+            availableUsers.map((user) => (
+              <label
+                key={user.userId}
+                className="flex items-center gap-3 py-2 px-1 hover:bg-[var(--bg-base)] rounded-lg cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(user.userId)}
+                  onChange={() => toggleMember(user.userId)}
+                  className="w-4 h-4 accent-[var(--accent)]"
+                />
+                <div className="flex-1 text-sm text-[var(--text-primary)]">{user.nickname}</div>
+              </label>
+            ))
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-[var(--border)] flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-base)] rounded-lg border-none bg-transparent cursor-pointer"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={!groupName.trim() || selectedIds.size === 0}
+            className="px-4 py-1.5 text-sm bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed border-none cursor-pointer"
+          >
+            创建
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // 头像组件
@@ -122,7 +215,18 @@ function UserItem({
 
 function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
   const { onlineUsers } = useUserStore()
+  const { createGroup } = useMessageStore()
   const [searchQuery, setSearchQuery] = useState('')
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
+
+  const handleCreateGroup = async (name: string, memberIds: string[]) => {
+    const result = await createGroup(name, memberIds)
+    if (result?.success) {
+      setShowCreateGroup(false)
+    } else {
+      alert(result?.error || '创建群聊失败')
+    }
+  }
 
   // 过滤用户
   const filteredUsers = onlineUsers.filter((user) =>
@@ -215,12 +319,25 @@ function UsersPage({ onSelectUser }: UsersPageProps): JSX.Element {
         )}
       </div>
 
-      {/* 底部提示 */}
-      <div className="px-4 py-2.5 border-t border-[var(--border)] flex-shrink-0">
-        <div className="text-[11px] text-[var(--text-disabled)] text-center">
-          局域网用户自动发现 · UDP 广播
+      {/* 底部操作栏 */}
+      <div className="px-4 py-2.5 border-t border-[var(--border)] flex-shrink-0 flex items-center justify-between">
+        <div className="text-[11px] text-[var(--text-disabled)]">
+          局域网用户自动发现
         </div>
+        <button
+          onClick={() => setShowCreateGroup(true)}
+          className="text-xs px-3 py-1.5 bg-[var(--accent-light)] text-[var(--accent)] rounded-md hover:bg-[var(--accent)] hover:text-white transition-colors border-none cursor-pointer"
+        >
+          + 创建群聊
+        </button>
       </div>
+
+      {showCreateGroup && (
+        <CreateGroupModal
+          onClose={() => setShowCreateGroup(false)}
+          onCreate={handleCreateGroup}
+        />
+      )}
     </div>
   )
 }

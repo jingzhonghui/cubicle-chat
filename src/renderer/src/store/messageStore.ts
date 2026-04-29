@@ -23,6 +23,8 @@ export interface Conversation {
   targetName: string
   targetAvatar?: string
   targetStatus?: string
+  memberIds?: string[]
+  creatorId?: string
   lastMessage?: string
   lastMessageAt?: number
   unreadCount: number
@@ -34,7 +36,7 @@ interface MessageStore {
   conversations: Conversation[]
   messages: Message[]
   currentConversationId: string | null
-  currentPage: 'chat' | 'users' | 'files' | 'settings'
+  currentPage: 'chat' | 'users' | 'groups' | 'files' | 'settings'
   isLoading: boolean
 
   // Actions
@@ -48,11 +50,19 @@ interface MessageStore {
   updateMessageId: (oldId: string, newId: string) => void
   updateMessageFileId: (oldFileId: string, newFileId: string) => void
   setCurrentConversation: (conversationId: string | null) => void
-  setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => void
+  setCurrentPage: (page: 'chat' | 'users' | 'groups' | 'files' | 'settings') => void
   createConversation: (targetId: string, type: 'single' | 'group', groupName?: string, targetInfo?: { nickname: string; avatar?: string; status?: string }) => Promise<Conversation | null>
   deleteConversation: (conversationId: string) => Promise<void>
   markAsRead: (conversationId: string) => void
   searchMessages: (keyword: string, conversationId?: string, limit?: number) => Promise<Message[]>
+  // 群聊操作
+  createGroup: (groupName: string, memberIds: string[]) => Promise<{ success: boolean; groupId?: string; error?: string }>
+  inviteToGroup: (groupId: string, conversationId: string, userIds: string[]) => Promise<{ success: boolean; error?: string }>
+  leaveGroup: (groupId: string, conversationId: string) => Promise<{ success: boolean; error?: string }>
+  deleteGroup: (groupId: string, conversationId: string) => Promise<{ success: boolean; error?: string }>
+  sendGroupMessage: (conversationId: string, content: string, contentType?: 'text' | 'emoji') => Promise<void>
+  sendGroupFile: (conversationId: string, filePath: string) => Promise<void>
+  updateConversationMembers: (conversationId: string, memberIds: string[]) => void
 }
 
 export const useMessageStore = create<MessageStore>((set, get) => ({
@@ -324,6 +334,163 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     } catch (error) {
       console.error('删除会话失败:', error)
     }
+  },
+
+  // ========== 群聊 Actions ==========
+  createGroup: async (groupName: string, memberIds: string[]) => {
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; groupId?: string; error?: string }>('group:create', {
+        groupName,
+        memberIds
+      })
+      if (result?.success) {
+        await get().loadConversations()
+      }
+      return result ?? { success: false, error: '未知错误' }
+    } catch (error) {
+      console.error('创建群聊失败:', error)
+      return { success: false, error: String(error) }
+    }
+  },
+
+  inviteToGroup: async (groupId: string, conversationId: string, userIds: string[]) => {
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('group:invite', {
+        groupId,
+        conversationId,
+        userIds
+      })
+      return result ?? { success: false, error: '未知错误' }
+    } catch (error) {
+      console.error('邀请成员失败:', error)
+      return { success: false, error: String(error) }
+    }
+  },
+
+  leaveGroup: async (groupId: string, conversationId: string) => {
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('group:leave', {
+        groupId,
+        conversationId
+      })
+      if (result?.success) {
+        // 移除会话
+        set((state) => ({
+          conversations: state.conversations.filter((c) => c.conversationId !== conversationId)
+        }))
+        set((state) => ({
+          messages: state.messages.filter((m) => m.conversationId !== conversationId)
+        }))
+        if (get().currentConversationId === conversationId) {
+          set({ currentConversationId: null })
+        }
+      }
+      return result ?? { success: false, error: '未知错误' }
+    } catch (error) {
+      console.error('退出群聊失败:', error)
+      return { success: false, error: String(error) }
+    }
+  },
+
+  deleteGroup: async (groupId: string, conversationId: string) => {
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; error?: string }>('group:delete', {
+        groupId,
+        conversationId
+      })
+      if (result?.success) {
+        // 移除会话
+        set((state) => ({
+          conversations: state.conversations.filter((c) => c.conversationId !== conversationId)
+        }))
+        set((state) => ({
+          messages: state.messages.filter((m) => m.conversationId !== conversationId)
+        }))
+        if (get().currentConversationId === conversationId) {
+          set({ currentConversationId: null })
+        }
+      }
+      return result ?? { success: false, error: '未知错误' }
+    } catch (error) {
+      console.error('删除群聊失败:', error)
+      return { success: false, error: String(error) }
+    }
+  },
+
+  sendGroupMessage: async (conversationId: string, content: string, contentType: 'text' | 'emoji' = 'text') => {
+    const conversation = get().conversations.find((c) => c.conversationId === conversationId)
+    const userInfo = useUserStore.getState().userInfo
+    if (!conversation || !userInfo) return
+
+    const localMessageId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const tempMessage: Message = {
+      messageId: localMessageId,
+      conversationId,
+      senderId: userInfo.userId,
+      senderName: userInfo.nickname,
+      contentType,
+      content,
+      status: 'sending',
+      isRecalled: false,
+      sentAt: Date.now()
+    }
+
+    get().addMessage(tempMessage)
+
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; messageId?: string }>('group:sendMessage', {
+        groupId: conversation.targetId,
+        conversationId,
+        content,
+        contentType
+      })
+
+      if (result?.success && result.messageId) {
+        get().updateMessageId(localMessageId, result.messageId)
+        get().updateMessageStatus(result.messageId, 'sent')
+      } else {
+        get().updateMessageStatus(localMessageId, 'failed')
+      }
+
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.conversationId === conversationId
+            ? { ...c, lastMessage: content, lastMessageAt: Date.now() }
+            : c
+        )
+      }))
+    } catch (error) {
+      console.error('发送群消息失败:', error)
+      get().updateMessageStatus(localMessageId, 'failed')
+    }
+  },
+
+  sendGroupFile: async (conversationId: string, filePath: string) => {
+    const conversation = get().conversations.find((c) => c.conversationId === conversationId)
+    if (!conversation) return
+
+    try {
+      const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('group:sendFile', {
+        groupId: conversation.targetId,
+        conversationId,
+        filePath
+      })
+
+      if (result?.success && result.transferId) {
+        const fileName = filePath.split(/[\\/]/).pop() || filePath
+        await get().sendFileMessage(conversationId, fileName, result.transferId, false)
+      }
+    } catch (error) {
+      console.error('发送群文件失败:', error)
+    }
+  },
+
+  updateConversationMembers: (conversationId: string, memberIds: string[]) => {
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.conversationId === conversationId ? { ...c, memberIds } : c
+      )
+    }))
   }
 }))
 
@@ -428,20 +595,15 @@ export function initMessageStoreListeners(): () => void {
     if (data.isNewConversation) {
       const exists = state.conversations.some(c => c.conversationId === data.conversationId)
       if (!exists) {
-        const newConversation: Conversation = {
-          conversationId: data.conversationId,
-          type: 'single',
-          targetId: data.senderId,
-          targetName: data.senderName,
-          lastMessage: data.content,
-          lastMessageAt: data.sentAt,
-          unreadCount: 1,
-          isPinned: false,
-          isMuted: false
-        }
-        useMessageStore.setState((state) => ({
-          conversations: [newConversation, ...state.conversations]
-        }))
+        // 需要从数据库加载完整会话信息
+        window.electronAPI.invoke<Conversation[]>('conversation:getList').then((convs) => {
+          const newConv = convs?.find(c => c.conversationId === data.conversationId)
+          if (newConv) {
+            useMessageStore.setState((state) => ({
+              conversations: [newConv, ...state.conversations.filter(c => c.conversationId !== newConv.conversationId)]
+            }))
+          }
+        })
       }
     } else {
       // 更新现有会话的最后消息和未读数
@@ -476,6 +638,24 @@ export function initMessageStoreListeners(): () => void {
     }
   })
 
+  // 监听群成员变更
+  const unsubscribeGroupMembers = window.electronAPI.on('group:members', (...args: unknown[]) => {
+    const data = args[0] as {
+      conversationId: string
+      memberIds: string[]
+    }
+    useMessageStore.getState().updateConversationMembers(data.conversationId, data.memberIds)
+  })
+
+  // 监听群解散
+  const unsubscribeGroupDissolved = window.electronAPI.on('group:dissolved', (...args: unknown[]) => {
+    const data = args[0] as { conversationId: string }
+    useMessageStore.setState((state) => ({
+      conversations: state.conversations.filter((c) => c.conversationId !== data.conversationId),
+      currentConversationId: state.currentConversationId === data.conversationId ? null : state.currentConversationId
+    }))
+  })
+
   return () => {
     unsubscribeUserUpdate()
     unsubscribeUserOffline()
@@ -483,5 +663,7 @@ export function initMessageStoreListeners(): () => void {
     unsubscribeAck()
     unsubscribeWithdrawn()
     unsubscribeConversationNew()
+    unsubscribeGroupMembers()
+    unsubscribeGroupDissolved()
   }
 }

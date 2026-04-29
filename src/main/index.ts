@@ -481,6 +481,39 @@ function registerIpcHandlers(): void {
     return networkService?.withdrawMessage(data.messageId, data.conversationId) ?? false
   })
 
+  // ========== 群聊 IPC ==========
+  ipcMain.handle('group:create', async (_, data: { groupName: string; memberIds: string[] }) => {
+    return networkService?.createGroup(data.groupName, data.memberIds) ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('group:invite', async (_, data: { groupId: string; conversationId: string; userIds: string[] }) => {
+    return networkService?.inviteToGroup(data.groupId, data.conversationId, data.userIds) ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('group:leave', async (_, data: { groupId: string; conversationId: string }) => {
+    return networkService?.leaveGroup(data.groupId, data.conversationId) ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('group:delete', async (_, data: { groupId: string; conversationId: string }) => {
+    return networkService?.deleteGroup(data.groupId, data.conversationId) ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('group:sendMessage', async (_, data: { groupId: string; conversationId: string; content: string; contentType: string }) => {
+    return networkService?.sendGroupMessage(data) ?? { success: false }
+  })
+
+  ipcMain.handle('group:sendFile', async (_, data: { groupId: string; conversationId: string; filePath: string }) => {
+    return networkService?.sendGroupFile(data.groupId, data.conversationId, data.filePath) ?? { success: false, error: '网络服务未初始化' }
+  })
+
+  ipcMain.handle('group:getMembers', async (_, data: { conversationId: string }) => {
+    return databaseService?.getGroupMembers(data.conversationId) ?? []
+  })
+
+  ipcMain.handle('group:getCreator', async (_, data: { conversationId: string }) => {
+    return databaseService?.getGroupCreator(data.conversationId) ?? null
+  })
+
   // 设置
   ipcMain.handle('settings:get', (_, key) => {
     return databaseService?.getSetting(key) ?? null

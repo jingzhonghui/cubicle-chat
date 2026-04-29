@@ -28,6 +28,14 @@ const invokeChannels = [
   'file:get',
   'file:getList',
   'file:open',
+  'group:create',
+  'group:invite',
+  'group:leave',
+  'group:delete',
+  'group:sendMessage',
+  'group:sendFile',
+  'group:getMembers',
+  'group:getCreator',
   'file:openFolder',
   'file:delete',
   'file:saveClipboardImage',
@@ -57,6 +65,8 @@ const receiveChannels = [
   'file:send-start',
   'typing:receive',
   'conversation:new',
+  'group:members',
+  'group:dissolved',
   'screenshot:complete'
 ]
 
@@ -89,6 +99,8 @@ export interface Conversation {
   targetName: string
   targetAvatar?: string
   targetStatus?: string
+  memberIds?: string[]
+  creatorId?: string
   lastMessage?: string
   lastMessageAt?: number
   unreadCount: number
