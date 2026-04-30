@@ -678,7 +678,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAreaProps): JSX.Element {
-  const { conversations, messages, sendGroupMessage, sendGroupFile, sendFileMessage, leaveGroup, deleteGroup } = useMessageStore()
+  const { conversations, messages, sendGroupMessage, sendGroupFile, sendFileMessage, leaveGroup, deleteGroup, inviteToGroup } = useMessageStore()
   const { userInfo, onlineUsers } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -728,6 +728,29 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
       onSelectUser(null)
     } else {
       alert(result?.error || '解散群聊失败')
+    }
+  }
+
+  // 邀请成员加入群聊
+  const handleInviteMembers = async (userIds: string[]) => {
+    if (!currentConversation || currentConversation.type !== 'group') return
+    const result = await inviteToGroup(
+      currentConversation.targetId,
+      currentConversation.conversationId,
+      userIds
+    )
+    if (result?.success) {
+      // 邀请成功，更新本地成员列表
+      const newMemberIds = Array.from(new Set([...(currentConversation.memberIds || []), ...userIds]))
+      useMessageStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.conversationId === currentConversation.conversationId
+            ? { ...c, memberIds: newMemberIds }
+            : c
+        )
+      }))
+    } else {
+      alert(result?.error || '邀请成员失败')
     }
   }
 
@@ -859,6 +882,8 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         <GroupMembersModal
           groupName={currentConversation.targetName}
           memberIds={currentConversation.memberIds || []}
+          isCreator={isGroupCreator}
+          onInvite={handleInviteMembers}
           onClose={() => setShowMembers(false)}
         />
       )}
