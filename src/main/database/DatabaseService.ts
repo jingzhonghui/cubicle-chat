@@ -351,6 +351,23 @@ export class DatabaseService {
     }
   }
 
+  getUsersByIds(userIds: string[]): Array<{ userId: string; nickname: string; avatar?: string; status: string }> {
+    if (!this.db || userIds.length === 0) return []
+    const placeholders = userIds.map(() => '?').join(',')
+    const rows = this.db.prepare(`SELECT user_id, nickname, avatar, status FROM users WHERE user_id IN (${placeholders})`).all(...userIds) as Array<{
+      user_id: string
+      nickname: string
+      avatar: string | null
+      status: string | null
+    }>
+    return rows.map(row => ({
+      userId: row.user_id,
+      nickname: row.nickname,
+      avatar: row.avatar || undefined,
+      status: row.status || 'offline'
+    }))
+  }
+
   saveUser(user: OnlineUser): void {
     if (!this.db) return
 

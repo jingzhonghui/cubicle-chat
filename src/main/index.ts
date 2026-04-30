@@ -435,6 +435,11 @@ function registerIpcHandlers(): void {
     return networkService?.getOnlineUsers() ?? []
   })
 
+  // 批量获取用户信息（含离线用户）
+  ipcMain.handle('user:getByIds', (_, userIds: string[]) => {
+    return databaseService?.getUsersByIds(userIds) ?? []
+  })
+
   // 获取会话列表
   ipcMain.handle('conversation:getList', () => {
     return databaseService?.getConversations() ?? []

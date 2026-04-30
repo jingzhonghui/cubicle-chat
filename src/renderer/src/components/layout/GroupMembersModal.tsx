@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useUserStore } from '@store/userStore'
 import { parseAvatar } from './Sidebar'
 
@@ -14,6 +14,23 @@ export default function GroupMembersModal({ groupName, memberIds, isCreator, onI
   const { userInfo, onlineUsers } = useUserStore()
   const [showInvitePanel, setShowInvitePanel] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [cachedUsers, setCachedUsers] = useState<Record<string, { nickname: string; avatar?: string }>>({})
+
+  // 从数据库加载群成员信息（含离线用户）
+  useEffect(() => {
+    const offlineIds = memberIds.filter(id => {
+      if (id === userInfo?.userId) return false
+      return !onlineUsers.find(u => u.userId === id)
+    })
+    if (offlineIds.length === 0) return
+    window.electronAPI.invoke<Array<{ userId: string; nickname: string; avatar?: string }>>('user:getByIds', offlineIds).then((users) => {
+      const map: Record<string, { nickname: string; avatar?: string }> = {}
+      for (const u of users) {
+        map[u.userId] = { nickname: u.nickname, avatar: u.avatar }
+      }
+      setCachedUsers(map)
+    })
+  }, [memberIds, onlineUsers, userInfo?.userId])
 
   const toggleMember = (userId: string) => {
     setSelectedIds((prev) => {
@@ -99,8 +116,9 @@ export default function GroupMembersModal({ groupName, memberIds, isCreator, onI
           {memberIds.map((memberId) => {
             const isMe = memberId === userInfo?.userId
             const onlineUser = onlineUsers.find((u) => u.userId === memberId)
-            const memberName = onlineUser?.nickname || (isMe ? userInfo?.nickname : '未知用户')
-            const memberAvatar = onlineUser?.avatar || (isMe ? userInfo?.avatar : undefined)
+            const cached = cachedUsers[memberId]
+            const memberName = onlineUser?.nickname || cached?.nickname || (isMe ? userInfo?.nickname : '未知用户')
+            const memberAvatar = onlineUser?.avatar || cached?.avatar || (isMe ? userInfo?.avatar : undefined)
             const memberStatus = isMe ? (userInfo?.status || 'online') : (onlineUser?.status || 'offline')
 
             const avatarEmoji = parseAvatar(memberAvatar)
