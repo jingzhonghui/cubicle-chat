@@ -10,7 +10,7 @@ type PageType = 'chat' | 'users' | 'groups' | 'files' | 'settings'
 interface ChatAreaProps {
   currentPage: PageType
   selectedConversationId: string | null
-  onSelectUser: (userId: string) => void
+  onSelectUser: (userId: string | null) => void
 }
 
 // 空状态组件
@@ -53,7 +53,7 @@ function SelectUserHint(): JSX.Element {
 }
 
 // 聊天头组件
-function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isGroup, memberCount, onMembersClick }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void; isGroup?: boolean; memberCount?: number; onMembersClick?: () => void }): JSX.Element {
+function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isGroup, memberCount, onMembersClick, isCreator, onLeaveGroup, onDeleteGroup }: { targetName: string; targetAvatar?: string; targetStatus?: string; onSearchClick?: () => void; isGroup?: boolean; memberCount?: number; onMembersClick?: () => void; isCreator?: boolean; onLeaveGroup?: () => void; onDeleteGroup?: () => void }): JSX.Element {
   const colors = ['#A4C8E8', '#A4E8B8', '#C4A4E8', '#E8D0A4', '#A4A4E8', '#E8A4A4', '#A4E8E0', '#E8C4A4']
   const colorIndex = targetName.charCodeAt(0) % colors.length
 
@@ -103,6 +103,24 @@ function ChatHeader({ targetName, targetAvatar, targetStatus, onSearchClick, isG
             title="查看群成员"
           >
             👥
+          </button>
+        )}
+        {isGroup && isCreator && (
+          <button
+            onClick={onDeleteGroup}
+            className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-red-50 hover:text-red-500 transition-colors border-none bg-transparent cursor-pointer"
+            title="解散群聊"
+          >
+            🗑️
+          </button>
+        )}
+        {isGroup && !isCreator && (
+          <button
+            onClick={onLeaveGroup}
+            className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--text-secondary)] hover:bg-red-50 hover:text-red-500 transition-colors border-none bg-transparent cursor-pointer"
+            title="退出群聊"
+          >
+            🚪
           </button>
         )}
         <button
@@ -660,7 +678,7 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAreaProps): JSX.Element {
-  const { conversations, messages, sendGroupMessage, sendGroupFile, sendFileMessage } = useMessageStore()
+  const { conversations, messages, sendGroupMessage, sendGroupFile, sendFileMessage, leaveGroup, deleteGroup } = useMessageStore()
   const { userInfo, onlineUsers } = useUserStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -668,6 +686,9 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
 
   // 获取当前会话
   const currentConversation = conversations.find((c) => c.conversationId === selectedConversationId)
+
+  // 判断当前用户是否是群主
+  const isGroupCreator = currentConversation?.type === 'group' && currentConversation?.creatorId === userInfo?.userId
 
   // 判断对方是否在线（单聊）或群聊始终启用
   const isTargetOnline = currentConversation
@@ -684,6 +705,30 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
   // 关闭搜索面板时重置状态
   const handleCloseSearch = () => {
     setShowSearch(false)
+  }
+
+  // 退出群聊
+  const handleLeaveGroup = async () => {
+    if (!currentConversation || currentConversation.type !== 'group') return
+    if (!confirm('确定要退出该群聊吗？')) return
+    const result = await leaveGroup(currentConversation.targetId, currentConversation.conversationId)
+    if (result?.success) {
+      onSelectUser(null)
+    } else {
+      alert(result?.error || '退出群聊失败')
+    }
+  }
+
+  // 解散群聊
+  const handleDeleteGroup = async () => {
+    if (!currentConversation || currentConversation.type !== 'group') return
+    if (!confirm('确定要解散该群聊吗？此操作不可恢复。')) return
+    const result = await deleteGroup(currentConversation.targetId, currentConversation.conversationId)
+    if (result?.success) {
+      onSelectUser(null)
+    } else {
+      alert(result?.error || '解散群聊失败')
+    }
   }
 
   // 根据页面和会话状态显示不同内容
@@ -791,6 +836,9 @@ function ChatArea({ currentPage, selectedConversationId, onSelectUser }: ChatAre
         isGroup={currentConversation.type === 'group'}
         memberCount={currentConversation.memberIds?.length}
         onMembersClick={() => setShowMembers(true)}
+        isCreator={isGroupCreator}
+        onLeaveGroup={handleLeaveGroup}
+        onDeleteGroup={handleDeleteGroup}
       />
 
       {/* 消息列表 */}

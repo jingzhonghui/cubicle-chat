@@ -1039,6 +1039,22 @@ export class NetworkService {
     const conversation = this.databaseService.getConversationByTarget(payload.groupId, 'group')
     if (!conversation) return
 
+    // 如果 leaverId 为空字符串，表示群被解散
+    const isDissolved = !payload.leaverId
+
+    if (isDissolved) {
+      // 群被解散，删除本地会话
+      this.databaseService.deleteGroup(conversation.conversationId)
+
+      // 通知渲染进程群已解散
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('group:dissolved', {
+          conversationId: conversation.conversationId
+        })
+      }
+      return
+    }
+
     // 更新成员列表（移除退出的成员）
     const members = this.databaseService.getGroupMembers(conversation.conversationId)
     const newMembers = members.filter(id => id !== payload.leaverId)
@@ -1230,6 +1246,7 @@ export class NetworkService {
     this.databaseService.deleteGroup(conversationId)
 
     // 发送 GROUP_LEAVE 广播（通知所有成员群已解散）
+    // leaverId 为空字符串表示解散群聊
     const packet: UdpPacket = {
       magic: MAGIC,
       version: VERSION,
@@ -1248,7 +1265,7 @@ export class NetworkService {
       },
       payload: {
         groupId,
-        leaverId: this.selfUserId
+        leaverId: ''
       }
     }
 

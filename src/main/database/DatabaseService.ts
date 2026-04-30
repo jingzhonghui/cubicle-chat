@@ -708,8 +708,8 @@ export class DatabaseService {
     }
   }
 
-  // 获取所有群信息
-  getGroups(): Array<{ groupId: string; groupName: string; memberIds: string[]; creatorId: string }> {
+  // 获取所有群信息（只返回当前用户仍在其中的群）
+  getGroups(selfUserId?: string): Array<{ groupId: string; groupName: string; memberIds: string[]; creatorId: string }> {
     if (!this.db) return []
 
     const rows = this.db.prepare('SELECT * FROM groups ORDER BY created_at DESC').all() as Array<{
@@ -724,7 +724,13 @@ export class DatabaseService {
       groupName: row.group_name,
       memberIds: JSON.parse(row.member_ids || '[]'),
       creatorId: row.creator_id
-    }))
+    })).filter(group => {
+      // 如果传了 selfUserId，过滤掉不在成员列表中的群
+      if (selfUserId) {
+        return group.memberIds.includes(selfUserId)
+      }
+      return true
+    })
   }
 
   // 根据 groupId 获取群信息

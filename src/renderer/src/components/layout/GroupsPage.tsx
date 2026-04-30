@@ -145,6 +145,21 @@ export default function GroupsPage({ onSelectGroup }: GroupsPageProps): JSX.Elem
 
   useEffect(() => {
     loadGroups()
+
+    // 监听群成员变更（自己退出后刷新列表）
+    const unsubscribeMembers = window.electronAPI.on('group:members', () => {
+      loadGroups()
+    })
+
+    // 监听群解散
+    const unsubscribeDissolved = window.electronAPI.on('group:dissolved', () => {
+      loadGroups()
+    })
+
+    return () => {
+      unsubscribeMembers()
+      unsubscribeDissolved()
+    }
   }, [])
 
   const loadGroups = async () => {

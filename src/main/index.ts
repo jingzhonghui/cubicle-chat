@@ -515,7 +515,8 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('group:getList', async () => {
-    return databaseService?.getGroups() ?? []
+    const userInfo = databaseService?.getUserInfo()
+    return databaseService?.getGroups(userInfo?.userId) ?? []
   })
 
   // 设置
