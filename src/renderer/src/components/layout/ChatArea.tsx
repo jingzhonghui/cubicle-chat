@@ -5,7 +5,7 @@ import MessageBubble from '@components/chat/MessageBubble'
 import { parseAvatar } from './Sidebar'
 import GroupMembersModal from './GroupMembersModal'
 
-type PageType = 'chat' | 'users' | 'files' | 'settings'
+type PageType = 'chat' | 'users' | 'groups' | 'files' | 'settings'
 
 interface ChatAreaProps {
   currentPage: PageType

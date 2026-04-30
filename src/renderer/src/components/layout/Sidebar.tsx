@@ -270,8 +270,8 @@ function SessionItem({
 function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: SidebarProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conversationId: string | undefined } | null>(null)
-  const { conversations, createConversation, deleteConversation, leaveGroup, deleteGroup } = useMessageStore()
-  const { onlineUsers, userInfo } = useUserStore()
+  const { conversations, createConversation, deleteConversation } = useMessageStore()
+  const { onlineUsers } = useUserStore()
 
   // 从用户页面选择用户时处理会话创建
   const handleUserSelect = async (userId: string) => {
@@ -310,7 +310,7 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
     setContextMenu({ x: e.clientX, y: e.clientY, conversationId: undefined })
   }
 
-  // 删除会话
+  // 删除会话（仅清空聊天记录，不退出/不解散群聊）
   const handleDeleteConversation = async (conversationId?: string) => {
     if (!conversationId) return
 
@@ -318,21 +318,10 @@ function Sidebar({ currentPage, selectedConversationId, onSelectConversation }: 
     if (!conv) return
 
     if (conv.type === 'group') {
-      // 群聊：创建者可删除，其他成员可退出
-      const isCreator = conv.creatorId === userInfo?.userId
-      if (isCreator) {
-        if (confirm('删除群聊会清空所有聊天记录')) {
-          await deleteGroup(conv.targetId, conv.conversationId)
-          if (selectedConversationId === conversationId) {
-            onSelectConversation(null)
-          }
-        }
-      } else {
-        if (confirm('退出群聊后将不再接收消息')) {
-          await leaveGroup(conv.targetId, conv.conversationId)
-          if (selectedConversationId === conversationId) {
-            onSelectConversation(null)
-          }
+      if (confirm('删除会话会清空该群聊的聊天记录，但不会退出群聊')) {
+        await deleteConversation(conversationId)
+        if (selectedConversationId === conversationId) {
+          onSelectConversation(null)
         }
       }
     } else {

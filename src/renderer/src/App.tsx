@@ -11,7 +11,7 @@ import { useUserStore, initUserStoreListeners } from '@store/userStore'
 import { useMessageStore, initMessageStoreListeners } from '@store/messageStore'
 import { useSettingsStore } from '@store/settingsStore'
 
-type PageType = 'chat' | 'users' | 'files' | 'settings'
+type PageType = 'chat' | 'users' | 'groups' | 'files' | 'settings'
 
 // 解析截图参数
 function parseScreenshotParams(): { image: string; width: number; height: number; scale: number } | null {

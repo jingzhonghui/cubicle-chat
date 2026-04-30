@@ -263,7 +263,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }
   },
 
-  setCurrentPage: (page: 'chat' | 'users' | 'files' | 'settings') => {
+  setCurrentPage: (page: 'chat' | 'users' | 'groups' | 'files' | 'settings') => {
     set({ currentPage: page })
   },
 

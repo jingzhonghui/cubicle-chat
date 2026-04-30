@@ -545,10 +545,21 @@ export class DatabaseService {
       }
     }
 
+    // 如果是群聊且缺少群信息，尝试从 groups 表恢复
+    let groupName = data.groupName
+    let memberIds = data.memberIds || []
+    let creatorId = data.creatorId || ''
+    if (data.type === 'group' && (!groupName || memberIds.length === 0)) {
+      const groupInfo = this.getGroupById(data.targetId)
+      if (groupInfo) {
+        groupName = groupName || groupInfo.groupName
+        memberIds = memberIds.length > 0 ? memberIds : groupInfo.memberIds
+        creatorId = creatorId || groupInfo.creatorId
+      }
+    }
+
     const conversationId = this.generateUUID()
     const now = Date.now()
-    const memberIds = data.memberIds || []
-    const creatorId = data.creatorId || ''
 
     const stmt = this.db.prepare(`
       INSERT INTO conversations (
@@ -560,16 +571,19 @@ export class DatabaseService {
       conversationId,
       data.type,
       data.targetId,
-      data.groupName || null,
+      groupName || null,
       memberIds.length > 0 ? JSON.stringify(memberIds) : null,
       creatorId || null,
       now,
       now
     )
 
-    // 如果是群聊，同时保存群信息到 groups 表
+    // 如果是群聊，同时保存群信息到 groups 表（仅当 groups 表不存在该群时才插入，避免覆盖已有数据）
     if (data.type === 'group') {
-      this.saveGroup(data.targetId, data.groupName || '群聊', memberIds, creatorId)
+      const existingGroup = this.getGroupById(data.targetId)
+      if (!existingGroup) {
+        this.saveGroup(data.targetId, groupName || '群聊', memberIds, creatorId)
+      }
     }
 
     return {
@@ -606,8 +620,17 @@ export class DatabaseService {
     if (!this.db) return false
 
     try {
+      // 更新 conversations 表
       const stmt = this.db.prepare('UPDATE conversations SET member_ids = ?, updated_at = ? WHERE conversation_id = ?')
       stmt.run(JSON.stringify(memberIds), Date.now(), conversationId)
+
+      // 同步更新 groups 表（getGroups 从此表读取）
+      const convRow = this.db.prepare('SELECT target_id FROM conversations WHERE conversation_id = ?').get(conversationId) as { target_id: string } | undefined
+      if (convRow?.target_id) {
+        const updateGroups = this.db.prepare('UPDATE groups SET member_ids = ?, updated_at = ? WHERE group_id = ?')
+        updateGroups.run(JSON.stringify(memberIds), Date.now(), convRow.target_id)
+      }
+
       return true
     } catch (error) {
       log.error('更新群成员失败:', error)
@@ -667,14 +690,14 @@ export class DatabaseService {
     }
   }
 
-  // 保存群信息到 groups 表
+  // 保存群信息到 groups 表（已存在则忽略，不覆盖）
   saveGroup(groupId: string, groupName: string, memberIds: string[], creatorId: string): boolean {
     if (!this.db) return false
 
     try {
       const now = Date.now()
       const stmt = this.db.prepare(`
-        INSERT OR REPLACE INTO groups (group_id, group_name, member_ids, creator_id, created_at, updated_at)
+        INSERT OR IGNORE INTO groups (group_id, group_name, member_ids, creator_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `)
       stmt.run(groupId, groupName, JSON.stringify(memberIds), creatorId, now, now)
