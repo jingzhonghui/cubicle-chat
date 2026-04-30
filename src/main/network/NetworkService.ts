@@ -823,10 +823,10 @@ export class NetworkService {
       tcpPort?: number
     }
 
-    log.info(`对方接受了文件传输: ${payload.transferId}, tcpPort: ${payload.tcpPort}`)
+    log.info(`对方接受了文件传输: ${payload.transferId}, tcpPort: ${payload.tcpPort}, from: ${packet.from.userId}`)
 
-    // 开始发送文件
-    this.startFileSend(payload.transferId, payload.offset || 0, payload.tcpPort)
+    // 开始发送文件（传入发送 FILE_ACCEPT 的用户 ID，用于群聊场景）
+    this.startFileSend(payload.transferId, payload.offset || 0, payload.tcpPort, packet.from.userId)
   }
 
   // ========== 群聊处理 ==========
@@ -1454,7 +1454,7 @@ export class NetworkService {
   }
 
   // 开始发送文件（收到 FILE_ACCEPT 后）
-  private async startFileSend(transferId: string, offset: number = 0, targetTcpPort?: number): Promise<void> {
+  private async startFileSend(transferId: string, offset: number = 0, targetTcpPort?: number, fromUserId?: string): Promise<void> {
     log.info(`开始文件发送: transferId=${transferId}, offset=${offset}, targetTcpPort=${targetTcpPort}`)
 
     const transfer = this.tcpTransferService?.getTransfer(transferId)
@@ -1465,8 +1465,36 @@ export class NetworkService {
       return
     }
 
-    log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}`)
+    log.info(`找到传输记录: ${transfer.fileName}, 方向: ${transfer.direction}, 状态: ${transfer.status}, peerId: ${transfer.peerId}`)
 
+    // 判断是否是群聊文件：peerId 对应的是一个 groupId（在 groups 表中存在）
+    const groupInfo = this.databaseService.getGroupById(transfer.peerId)
+    if (groupInfo) {
+      // 群聊文件：向发送 FILE_ACCEPT 的那个成员发送
+      const targetUser = fromUserId ? this.findUserByUserId(fromUserId) : null
+      if (!targetUser) {
+        log.error(`群文件接收者不在线: ${fromUserId || '(未知)'}`)
+        return
+      }
+      const tcpPort = targetTcpPort || targetUser.port || TCP_PORT
+      log.info(`发送群文件给: ${targetUser.nickname} (${targetUser.ip}:${tcpPort})`)
+      try {
+        await this.tcpTransferService?.sendFile(
+          targetUser.ip,
+          tcpPort,
+          transfer.filePath,
+          transfer.peerId,
+          transferId,
+          offset
+        )
+        log.info(`群文件发送完成: ${transfer.fileName}`)
+      } catch (error) {
+        log.error(`群文件发送失败: ${error}`)
+      }
+      return
+    }
+
+    // 单聊文件
     const targetUser = this.findUserByUserId(transfer.peerId)
     if (!targetUser) {
       log.error(`用户不在线: ${transfer.peerId}`)
