@@ -499,25 +499,36 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   const handleSelectImage = async () => {
     try {
       const filePath = await window.electronAPI.invoke<string | null>('file:select')
-      if (filePath && targetId) {
-        const isImage = true
-        // 先添加到本地消息列表（临时消息）
-        // 图片临时消息的 content 使用 local-resource:// 协议 URL，以便立即显示
-        const tempFileId = `temp-${Date.now()}`
-        const imageUrl = `local-resource:///${filePath.replace(/\\/g, '/')}`
-        await sendFileMessage(conversationId, imageUrl, tempFileId, isImage)
-        // 然后发送文件
-        const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
-        if (result?.success && result.transferId) {
-          // 更新消息的 fileId（实际 transferId），并设置为发送中状态
-          const { useMessageStore } = await import('@store/messageStore')
-          useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
-          useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
-        } else {
-          // 发送失败，更新状态
-          const { useMessageStore } = await import('@store/messageStore')
-          useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
-        }
+      if (!filePath || !targetId) return
+
+      const isImage = true
+      const conversation = useMessageStore.getState().conversations.find((c) => c.conversationId === conversationId)
+      if (!conversation) return
+
+      // 先添加到本地消息列表（临时消息）
+      const tempFileId = `temp-${Date.now()}`
+      const imageUrl = `local-resource:///${filePath.replace(/\\/g, '/')}`
+      await sendFileMessage(conversationId, imageUrl, tempFileId, isImage)
+
+      // 然后发送文件（群聊/单聊走不同通道）
+      let result: { success: boolean; transferId?: string; error?: string } | null = null
+      if (conversation.type === 'group') {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('group:sendFile', {
+          groupId: conversation.targetId,
+          conversationId,
+          filePath
+        })
+      } else {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+      }
+
+      if (result?.success && result.transferId) {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
+      } else {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
       }
     } catch (error) {
       console.error('发送图片失败:', error)
@@ -528,26 +539,37 @@ function MessageInput({ conversationId, disabled, targetId }: { conversationId: 
   const handleSelectFile = async () => {
     try {
       const filePath = await window.electronAPI.invoke<string | null>('file:select')
-      if (filePath && targetId) {
-        const fileName = getFileName(filePath)
-        const isImage = isImageFile(fileName)
-        // 先添加到本地消息列表（临时消息）
-        const tempFileId = `temp-${Date.now()}`
-        // 图片临时消息的 content 使用 local-resource:// 协议 URL，以便立即显示
-        const content = isImage ? `local-resource:///${filePath.replace(/\\/g, '/')}` : fileName
-        await sendFileMessage(conversationId, content, tempFileId, isImage)
-        // 然后发送文件
-        const result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
-        if (result?.success && result.transferId) {
-          // 更新消息的 fileId（实际 transferId），并设置为发送中状态
-          const { useMessageStore } = await import('@store/messageStore')
-          useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
-          useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
-        } else {
-          // 发送失败，更新状态
-          const { useMessageStore } = await import('@store/messageStore')
-          useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
-        }
+      if (!filePath || !targetId) return
+
+      const fileName = getFileName(filePath)
+      const isImage = isImageFile(fileName)
+      const conversation = useMessageStore.getState().conversations.find((c) => c.conversationId === conversationId)
+      if (!conversation) return
+
+      // 先添加到本地消息列表（临时消息）
+      const tempFileId = `temp-${Date.now()}`
+      const content = isImage ? `local-resource:///${filePath.replace(/\\/g, '/')}` : fileName
+      await sendFileMessage(conversationId, content, tempFileId, isImage)
+
+      // 然后发送文件（群聊/单聊走不同通道）
+      let result: { success: boolean; transferId?: string; error?: string } | null = null
+      if (conversation.type === 'group') {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('group:sendFile', {
+          groupId: conversation.targetId,
+          conversationId,
+          filePath
+        })
+      } else {
+        result = await window.electronAPI.invoke<{ success: boolean; transferId?: string; error?: string }>('file:send', { to: targetId, filePath })
+      }
+
+      if (result?.success && result.transferId) {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageFileId(tempFileId, result.transferId)
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'sending')
+      } else {
+        const { useMessageStore } = await import('@store/messageStore')
+        useMessageStore.getState().updateMessageStatus(tempFileId, 'failed')
       }
     } catch (error) {
       console.error('发送文件失败:', error)
