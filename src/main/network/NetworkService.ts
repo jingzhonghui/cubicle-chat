@@ -926,17 +926,6 @@ export class NetworkService {
     }
 
     if (conversation && this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('msg:receive', {
-        messageId: packet.msgId,
-        conversationId: conversation.conversationId,
-        senderId: packet.from.userId,
-        senderName: packet.from.nickname,
-        contentType: 'system',
-        content: `${packet.from.nickname} 邀请你加入群聊`,
-        sentAt: packet.timestamp,
-        isNewConversation
-      })
-
       if (isNewConversation) {
         this.mainWindow.webContents.send('conversation:new', conversation)
       }
@@ -1060,28 +1049,8 @@ export class NetworkService {
     const newMembers = members.filter(id => id !== payload.leaverId)
     this.databaseService.updateGroupMembers(conversation.conversationId, newMembers)
 
-    // 保存系统消息
-    this.databaseService.saveMessage({
-      messageId: packet.msgId,
-      conversationId: conversation.conversationId,
-      senderId: payload.leaverId,
-      contentType: 'system',
-      content: `${packet.from.nickname} 退出了群聊`
-    })
-
     // 通知渲染进程
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('msg:receive', {
-        messageId: packet.msgId,
-        conversationId: conversation.conversationId,
-        senderId: payload.leaverId,
-        senderName: packet.from.nickname,
-        contentType: 'system',
-        content: `${packet.from.nickname} 退出了群聊`,
-        sentAt: packet.timestamp,
-        isNewConversation: false
-      })
-
       // 通知成员变更
       this.mainWindow.webContents.send('group:members', {
         conversationId: conversation.conversationId,
@@ -1201,6 +1170,9 @@ export class NetworkService {
     const members = this.databaseService.getGroupMembers(conversationId)
     const newMembers = members.filter(id => id !== this.selfUserId)
     this.databaseService.updateGroupMembers(conversationId, newMembers)
+
+    // 删除本地会话和消息记录（退出群聊后不再保留历史）
+    this.databaseService.deleteConversation(conversationId)
 
     // 发送 GROUP_LEAVE 广播
     const packet: UdpPacket = {

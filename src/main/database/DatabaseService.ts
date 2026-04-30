@@ -600,6 +600,10 @@ export class DatabaseService {
       const existingGroup = this.getGroupById(data.targetId)
       if (!existingGroup) {
         this.saveGroup(data.targetId, groupName || '群聊', memberIds, creatorId)
+      } else if (memberIds.length > 0) {
+        // 群已存在但成员列表需要更新（如重新入群），同步更新 groups 表
+        const updateStmt = this.db.prepare('UPDATE groups SET member_ids = ?, updated_at = ? WHERE group_id = ?')
+        updateStmt.run(JSON.stringify(memberIds), Date.now(), data.targetId)
       }
     }
 
